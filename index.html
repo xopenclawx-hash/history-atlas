@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>History Atlas - Interactive World Population Timeline</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="header">
+        <h1>History Atlas</h1>
+        <p>Interactive World Population Timeline (3000 BC - 2025 AD)</p>
+    </div>
+    
+    <div class="container">
+        <div id="map"></div>
+        <div class="info-panel">
+            <h3>Year: <span id="yearDisplay">3000 BC</span></h3>
+            <div id="statsContent">
+                <p>Total Estimated World Population: <strong id="populationDisplay">0</strong></p>
+                <div id="regionStats"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="timeline-container">
+        <div class="timeline-label">
+            <span id="startYear">3000 BC</span>
+            <span id="endYear">2025 AD</span>
+        </div>
+        <input type="range" id="timelineSlider" class="timeline-slider" min="0" max="100" value="0">
+        <div class="timeline-markers">
+            <div class="marker" style="left: 0%">3000 BC</div>
+            <div class="marker" style="left: 25%">1000 AD</div>
+            <div class="marker" style="left: 50%">1800 AD</div>
+            <div class="marker" style="left: 75%">1950 AD</div>
+            <div class="marker" style="left: 100%">2025 AD</div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
