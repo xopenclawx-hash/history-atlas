@@ -5,62 +5,88 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>History Atlas</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="styles.css?v=10">
+    <link rel="stylesheet" href="styles.css?v=11">
 </head>
 <body>
-    <div class="header">
-        <div class="header-left">
+    <!-- Top Bar -->
+    <div class="top-bar">
+        <div class="top-bar-left">
             <h1>HISTORY <span class="accent">ATLAS</span></h1>
-            <p class="subtitle">World Population Timeline</p>
         </div>
-        <div class="header-right">
-            <div class="year-display" id="yearDisplay">3000 BC</div>
+        <div class="top-bar-center">
+            <div class="search-box">
+                <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input type="text" id="searchInput" placeholder="Search countries..." autocomplete="off">
+                <div class="search-results" id="searchResults"></div>
+            </div>
         </div>
-    </div>
-    
-    <div class="container">
-        <div id="map"></div>
-        <div class="info-panel">
-            <div class="stat-card">
-                <div class="stat-label">WORLD POPULATION</div>
-                <div class="stat-value" id="populationDisplay">~14M</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">ERA</div>
-                <div class="stat-value small" id="eraDisplay">Bronze Age</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">REGIONS</div>
-                <div class="stat-value small" id="regionCount">4</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">SCALE</div>
-                <div class="stat-value tiny" id="dotScale">1 dot = 20K</div>
-            </div>
-            <div class="divider"></div>
-            <div class="region-list" id="regionStats"></div>
+        <div class="top-bar-right">
+            <div class="year-badge" id="yearDisplay">3000 BC</div>
         </div>
     </div>
-    
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Info Panel (slides in on country click) -->
+    <div class="info-panel" id="infoPanel">
+        <button class="info-close" id="infoPanelClose">&times;</button>
+        <div class="info-header">
+            <div class="info-country-name" id="infoName">--</div>
+            <div class="info-continent" id="infoContinent">--</div>
+        </div>
+        <div class="info-stats">
+            <div class="info-stat">
+                <div class="info-stat-label">SUBREGION</div>
+                <div class="info-stat-value" id="infoSubregion">--</div>
+            </div>
+            <div class="info-stat">
+                <div class="info-stat-label">POPULATION (MODERN EST.)</div>
+                <div class="info-stat-value" id="infoPopModern">--</div>
+            </div>
+            <div class="info-stat">
+                <div class="info-stat-label">GDP (USD MILLIONS)</div>
+                <div class="info-stat-value" id="infoGDP">--</div>
+            </div>
+            <div class="info-stat">
+                <div class="info-stat-label">ECONOMY</div>
+                <div class="info-stat-value" id="infoEconomy">--</div>
+            </div>
+            <div class="info-divider"></div>
+            <div class="info-stat">
+                <div class="info-stat-label">HISTORICAL POPULATION (<span id="infoHistYear">--</span>)</div>
+                <div class="info-stat-value accent" id="infoHistPop">--</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Timeline Stats Panel (bottom-right) -->
+    <div class="stats-panel" id="statsPanel">
+        <div class="stats-header">
+            <div class="stats-era" id="eraDisplay">Bronze Age</div>
+            <div class="stats-pop">
+                <span class="stats-pop-label">WORLD</span>
+                <span class="stats-pop-value" id="populationDisplay">~6.6M</span>
+            </div>
+        </div>
+        <div class="stats-scale" id="dotScale">1 dot = 20K</div>
+        <div class="stats-list" id="regionStats"></div>
+    </div>
+
+    <!-- Timeline -->
     <div class="timeline-container">
         <div class="timeline-year-label" id="sliderYearLabel">3000 BC</div>
         <input type="range" id="timelineSlider" class="timeline-slider" min="0" max="1000" value="0">
         <div class="timeline-markers">
-            <span>3000 BC</span>
-            <span>1000 BC</span>
-            <span>1 AD</span>
-            <span>1000 AD</span>
-            <span>1500</span>
-            <span>1800</span>
-            <span>1900</span>
-            <span>1950</span>
-            <span>2000</span>
-            <span>2025</span>
+            <span>3000 BC</span><span>1000 BC</span><span>1 AD</span><span>1000 AD</span>
+            <span>1500</span><span>1800</span><span>1900</span><span>1950</span><span>2000</span><span>2025</span>
         </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="data.js?v=10"></script>
-    <script src="app.js?v=10"></script>
+    <script src="data.js?v=11"></script>
+    <script src="app.js?v=11"></script>
 </body>
 </html>
