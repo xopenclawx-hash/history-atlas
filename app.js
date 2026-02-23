@@ -1,14 +1,18 @@
 // Initialize dark-themed map
 const map = L.map('map', {
     zoomControl: true,
-    attributionControl: true
+    attributionControl: true,
+    worldCopyJump: false,
+    maxBounds: [[-85, -180], [85, 180]],
+    maxBoundsViscosity: 1.0,
+    noWrap: true
 }).setView([25, 20], 3);
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '© CARTO',
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '© Esri',
     maxZoom: 8,
     minZoom: 2,
-    subdomains: 'abcd'
+    noWrap: true
 }).addTo(map);
 
 let circleMarkers = [];
