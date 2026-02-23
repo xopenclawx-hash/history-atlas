@@ -4,10 +4,11 @@ const map = L.map('map', {
     attributionControl: true
 }).setView([25, 20], 3);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OSM',
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© CARTO',
     maxZoom: 8,
-    minZoom: 2
+    minZoom: 2,
+    subdomains: 'abcd'
 }).addTo(map);
 
 let circleMarkers = [];

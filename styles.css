@@ -65,10 +65,7 @@ body {
     background: #0a0e17;
 }
 
-/* Dark map tiles */
-.leaflet-tile {
-    filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
-}
+/* CARTO dark tiles are already dark, no filter needed */
 
 .leaflet-container {
     background: #0a0e17;
