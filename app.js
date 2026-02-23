@@ -7,11 +7,19 @@ const map = L.map('map', {
     maxZoom: 8
 }).setView([25, 20], 3);
 
-// Stamen Toner dark base - English only, clean look
-L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png', {
-    attribution: '© Stadia Maps',
+// CARTO dark - no missing tiles at edges
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+    attribution: '© CARTO',
     maxZoom: 8,
-    minZoom: 2
+    minZoom: 2,
+    subdomains: 'abcd'
+}).addTo(map);
+
+// CARTO English-only labels on top
+L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_only_labels/{z}/{x}/{y}{r}.png', {
+    maxZoom: 8,
+    minZoom: 2,
+    subdomains: 'abcd'
 }).addTo(map);
 
 let circleMarkers = [];
