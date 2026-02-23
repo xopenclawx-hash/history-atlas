@@ -10,13 +10,11 @@ const map = L.map('map', {
     wheelPxPerZoomLevel: 120,
 }).setView([25, 20], 3);
 
-// Dark basemap
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; CARTO',
     maxZoom: 8, minZoom: 2, subdomains: 'abcd'
 }).addTo(map);
 
-// Labels layer (toggle by zoom)
 const labelsLayer = L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_only_labels/{z}/{x}/{y}{r}.png', {
     maxZoom: 8, minZoom: 2, subdomains: 'abcd'
 });
@@ -34,118 +32,108 @@ const CONTINENT_COLORS = {
     'Seven seas (open ocean)': { fill: '#1e3a5f', border: '#2a4a6f' },
 };
 
-function getContinentColor(continent) {
-    return CONTINENT_COLORS[continent] || { fill: '#475569', border: '#64748b' };
+function getContinentColor(c) {
+    return CONTINENT_COLORS[c] || { fill: '#475569', border: '#64748b' };
 }
 
-// ===== GEOJSON COUNTRY LAYER =====
+// ===== GEOJSON =====
 let geoLayer = null;
 let selectedLayer = null;
 let countryFeatures = [];
 
 function getCountryStyle(feature) {
     const zoom = map.getZoom();
-    const continent = feature.properties.CONTINENT;
-    const colors = getContinentColor(continent);
-
+    const colors = getContinentColor(feature.properties.CONTINENT);
     if (zoom < 3.5) {
-        // Zoomed out: very subtle borders, minimal fill
-        return {
-            fillColor: colors.fill,
-            fillOpacity: 0.06,
-            color: colors.border,
-            weight: 0.5,
-            opacity: 0.2,
-        };
+        return { fillColor: colors.fill, fillOpacity: 0.06, color: colors.border, weight: 0.5, opacity: 0.2 };
     } else if (zoom < 5) {
-        // Mid zoom: clearer borders, light fill
-        return {
-            fillColor: colors.fill,
-            fillOpacity: 0.1,
-            color: colors.border,
-            weight: 0.8,
-            opacity: 0.35,
-        };
+        return { fillColor: colors.fill, fillOpacity: 0.1, color: colors.border, weight: 0.8, opacity: 0.35 };
     } else {
-        // Zoomed in: visible fill
-        return {
-            fillColor: colors.fill,
-            fillOpacity: 0.15,
-            color: colors.border,
-            weight: 1,
-            opacity: 0.5,
-        };
+        return { fillColor: colors.fill, fillOpacity: 0.15, color: colors.border, weight: 1, opacity: 0.5 };
     }
 }
 
 function highlightFeature(e) {
     const layer = e.target;
     if (layer === selectedLayer) return;
-    const continent = layer.feature.properties.CONTINENT;
-    const colors = getContinentColor(continent);
-    layer.setStyle({
-        fillOpacity: 0.25,
-        weight: 2,
-        color: colors.border,
-        opacity: 0.8,
-    });
+    const colors = getContinentColor(layer.feature.properties.CONTINENT);
+    layer.setStyle({ fillOpacity: 0.25, weight: 2, color: colors.border, opacity: 0.8 });
     layer.bringToFront();
     if (selectedLayer) selectedLayer.bringToFront();
 }
 
 function resetHighlight(e) {
-    const layer = e.target;
-    if (layer === selectedLayer) return;
-    geoLayer.resetStyle(layer);
+    if (e.target === selectedLayer) return;
+    geoLayer.resetStyle(e.target);
 }
 
 function selectCountry(e) {
     const layer = e.target;
     const props = layer.feature.properties;
-
-    // Deselect previous
-    if (selectedLayer) {
-        geoLayer.resetStyle(selectedLayer);
-    }
-
-    // Select new
+    if (selectedLayer) geoLayer.resetStyle(selectedLayer);
     selectedLayer = layer;
-    const colors = getContinentColor(props.CONTINENT);
-    layer.setStyle({
-        fillColor: '#38bdf8',
-        fillOpacity: 0.3,
-        color: '#38bdf8',
-        weight: 2.5,
-        opacity: 0.9,
-    });
+    layer.setStyle({ fillColor: '#38bdf8', fillOpacity: 0.3, color: '#38bdf8', weight: 2.5, opacity: 0.9 });
     layer.bringToFront();
-
-    // Update info panel
     showInfoPanel(props);
 }
 
 function showInfoPanel(props) {
+    const panel = document.getElementById('infoPanel');
     document.getElementById('infoName').textContent = props.NAME || props.ADMIN || '--';
     document.getElementById('infoContinent').textContent = props.CONTINENT || '--';
     document.getElementById('infoSubregion').textContent = props.SUBREGION || '--';
     document.getElementById('infoPopModern').textContent = props.POP_EST ? formatPop(props.POP_EST) : '--';
     document.getElementById('infoGDP').textContent = props.GDP_MD ? '$' + Number(props.GDP_MD).toLocaleString() + 'M' : '--';
     document.getElementById('infoEconomy').textContent = props.ECONOMY || '--';
+    updateInfoHistorical(props);
+    panel.classList.add('open');
+    // Also show the toggle button
+    document.getElementById('infoPanelToggle').style.display = 'none';
+}
 
-    // Historical population for this country at current time
+function updateInfoHistorical(props) {
     const data = historicalData[currentIndex];
     const countryName = props.NAME || props.ADMIN;
-    const histRegion = data.regions.find(r =>
-        r.name === countryName || r.civilization === countryName
-    );
+    // Find closest population center to this country
+    // Use the GeoJSON centroid or country name matching
+    const bounds = selectedLayer ? selectedLayer.getBounds() : null;
+    let totalPop = 0;
+    let matchedCenters = [];
+    
+    if (bounds) {
+        const cLat = bounds.getCenter().lat;
+        const cLng = bounds.getCenter().lng;
+        const latSpan = Math.max(2, (bounds.getNorth() - bounds.getSouth()) * 0.6);
+        const lngSpan = Math.max(2, (bounds.getEast() - bounds.getWest()) * 0.6);
+        
+        data.regions.forEach(r => {
+            const dlat = Math.abs(r.lat - cLat);
+            const dlng = Math.abs(r.lng - cLng);
+            if (dlat < latSpan && dlng < lngSpan) {
+                totalPop += r.population;
+                matchedCenters.push(r);
+            }
+        });
+    }
+    
     document.getElementById('infoHistYear').textContent = data.label;
-    document.getElementById('infoHistPop').textContent = histRegion ? formatPop(histRegion.population) : 'No data';
-
-    document.getElementById('infoPanel').classList.add('open');
+    document.getElementById('infoHistPop').textContent = totalPop > 0 ? formatPop(totalPop) : 'No data';
+    
+    // Show matched centers breakdown
+    const breakdown = document.getElementById('infoHistBreakdown');
+    if (matchedCenters.length > 0 && matchedCenters.length <= 20) {
+        breakdown.innerHTML = matchedCenters
+            .sort((a, b) => b.population - a.population)
+            .map(c => `<div class="info-breakdown-item"><span>${c.name}</span><span>${formatPop(c.population)}</span></div>`)
+            .join('');
+    } else {
+        breakdown.innerHTML = '';
+    }
 }
 
 function closeInfoPanel() {
     document.getElementById('infoPanel').classList.remove('open');
+    document.getElementById('infoPanelToggle').style.display = 'flex';
     if (selectedLayer) {
         geoLayer.resetStyle(selectedLayer);
         selectedLayer = null;
@@ -153,30 +141,27 @@ function closeInfoPanel() {
 }
 
 document.getElementById('infoPanelClose').addEventListener('click', closeInfoPanel);
-
-// Click on map (not on country) deselects
-map.on('click', function(e) {
-    // Only if click didn't hit a country
-    closeInfoPanel();
+document.getElementById('infoPanelToggle').addEventListener('click', () => {
+    if (selectedLayer) {
+        document.getElementById('infoPanel').classList.add('open');
+        document.getElementById('infoPanelToggle').style.display = 'none';
+    }
 });
 
+map.on('click', () => closeInfoPanel());
+
 // Load GeoJSON
-fetch('countries.geojson?v=11')
+fetch('countries.geojson?v=12')
     .then(r => r.json())
     .then(data => {
         countryFeatures = data.features;
-
         geoLayer = L.geoJSON(data, {
             style: getCountryStyle,
             onEachFeature: function(feature, layer) {
-                // Tooltip on hover
                 layer.bindTooltip(feature.properties.NAME, {
                     className: 'country-tooltip',
-                    sticky: true,
-                    direction: 'right',
-                    offset: [10, 0],
+                    sticky: true, direction: 'right', offset: [10, 0],
                 });
-
                 layer.on({
                     mouseover: highlightFeature,
                     mouseout: resetHighlight,
@@ -187,54 +172,53 @@ fetch('countries.geojson?v=11')
                 });
             }
         }).addTo(map);
-
-        // Restyle on zoom change
-        map.on('zoomend', function() {
-            if (geoLayer) {
-                geoLayer.eachLayer(function(layer) {
-                    if (layer !== selectedLayer) {
-                        layer.setStyle(getCountryStyle(layer.feature));
-                    }
-                });
-            }
+        map.on('zoomend', () => {
+            if (geoLayer) geoLayer.eachLayer(l => {
+                if (l !== selectedLayer) l.setStyle(getCountryStyle(l.feature));
+            });
         });
-    })
-    .catch(err => console.error('GeoJSON load error:', err));
+    });
 
-// ===== SEARCH =====
+// ===== SEARCH (supports Chinese via countries-data.js if loaded) =====
 const searchInput = document.getElementById('searchInput');
 const searchResults = document.getElementById('searchResults');
 
 searchInput.addEventListener('input', function() {
     const q = this.value.trim().toLowerCase();
-    if (q.length < 2) {
-        searchResults.classList.remove('active');
-        return;
-    }
+    if (q.length < 1) { searchResults.classList.remove('active'); return; }
 
-    const matches = countryFeatures
-        .filter(f => f.properties.NAME && f.properties.NAME.toLowerCase().includes(q))
-        .slice(0, 8);
+    const matches = countryFeatures.filter(f => {
+        const name = (f.properties.NAME || '').toLowerCase();
+        const admin = (f.properties.ADMIN || '').toLowerCase();
+        if (name.includes(q) || admin.includes(q)) return true;
+        // Chinese name search (if COUNTRY_DATA available)
+        if (typeof COUNTRY_DATA !== 'undefined') {
+            const iso = f.properties.ISO_A3;
+            const cd = COUNTRY_DATA[iso];
+            if (cd && (cd.name_cn || '').includes(q)) return true;
+            if (cd && (cd.name_en || '').toLowerCase().includes(q)) return true;
+        }
+        return false;
+    }).slice(0, 10);
 
-    if (matches.length === 0) {
-        searchResults.classList.remove('active');
-        return;
-    }
+    if (matches.length === 0) { searchResults.classList.remove('active'); return; }
 
-    searchResults.innerHTML = matches.map((f, i) =>
-        `<div class="search-result-item" data-idx="${i}">
-            <span>${f.properties.NAME}</span>
+    searchResults.innerHTML = matches.map((f, i) => {
+        let label = f.properties.NAME;
+        if (typeof COUNTRY_DATA !== 'undefined') {
+            const cd = COUNTRY_DATA[f.properties.ISO_A3];
+            if (cd) label = cd.name_cn + ' / ' + cd.name_en;
+        }
+        return `<div class="search-result-item" data-idx="${i}">
+            <span>${label}</span>
             <span class="continent-tag">${f.properties.CONTINENT || ''}</span>
-        </div>`
-    ).join('');
-
+        </div>`;
+    }).join('');
     searchResults.classList.add('active');
 
-    // Click handlers
     searchResults.querySelectorAll('.search-result-item').forEach((el, i) => {
         el.addEventListener('click', () => {
             const feat = matches[i];
-            // Fly to country
             geoLayer.eachLayer(layer => {
                 if (layer.feature === feat) {
                     map.fitBounds(layer.getBounds(), { padding: [50, 50], maxZoom: 5 });
@@ -247,11 +231,9 @@ searchInput.addEventListener('input', function() {
     });
 });
 
-searchInput.addEventListener('blur', () => {
-    setTimeout(() => searchResults.classList.remove('active'), 200);
-});
+searchInput.addEventListener('blur', () => setTimeout(() => searchResults.classList.remove('active'), 200));
 
-// ===== POPULATION DOT DENSITY =====
+// ===== DOT DENSITY =====
 let dotMarkers = [];
 let currentIndex = 0;
 
@@ -280,31 +262,19 @@ function getDotColor(ratio) {
     return '#22d3ee';
 }
 
-const REGION_SPREAD = {
-    "China": 6, "India": 4, "Russia": 8, "United States": 6,
-    "Brazil": 5, "Canada": 6, "Australia": 5, "Indonesia": 3,
-    "Sub-Saharan Africa": 8, "Western Europe": 4, "Eastern Europe": 4,
-    "Central Asia": 5, "Southeast Asia": 4, "North Africa": 4,
-    "Mesopotamia": 2, "Indus Valley": 2, "Persia": 3, "Rome": 2,
-    "Egypt": 2, "Arabia": 3, "Mongolia": 5, "Scandinavia": 3,
-    "Ottoman": 3, "Mongol": 6, "Maya": 2, "Aztec": 1.5, "Inca": 2,
-    "DR Congo": 3, "Nigeria": 2, "Ethiopia": 2, "Tanzania": 2,
-    "Kenya": 2, "Sudan": 3, "Algeria": 3, "South Africa": 2,
-    "Pakistan": 2, "Bangladesh": 1.5, "Iran": 3, "Turkey": 2,
-    "Germany": 1.5, "France": 2, "United Kingdom": 1.5, "Italy": 1.5,
-    "Spain": 2, "Mexico": 3, "Argentina": 4, "Colombia": 2,
-    "Peru": 2, "Japan": 2, "Korea": 1.5, "Myanmar": 2,
-    "Thailand": 2, "Vietnam": 2, "Philippines": 1.5, "Malaysia": 2,
-    "Cambodia": 1.5, "Afghanistan": 2, "Iraq": 1.5, "Saudi Arabia": 3,
-};
-
-function getSpread(name) { return REGION_SPREAD[name] || 1.5; }
+// Spread based on population — large centers get tighter clusters
+function getSpread(pop) {
+    if (pop > 10e6) return 1.0;
+    if (pop > 1e6) return 1.5;
+    if (pop > 100000) return 2.0;
+    return 2.5;
+}
 
 function generateDots(region, numDots, seed) {
     const dots = [];
-    const spread = getSpread(region.name);
+    const spread = getSpread(region.population);
     for (let i = 0; i < numDots; i++) {
-        const s = seed + i * 7 + region.name.length;
+        const s = seed + i * 7 + (region.name || '').length;
         const r1 = seededRandom(s);
         const r2 = seededRandom(s + 1000);
         const angle = r1 * Math.PI * 2;
@@ -338,9 +308,10 @@ function updateMap(index) {
     const maxPop = Math.max(...data.regions.map(r => r.population));
     const sorted = [...data.regions].sort((a, b) => b.population - a.population);
 
-    // Update stats panel
+    // Top 30 for stats panel
+    const top = sorted.slice(0, 30);
     const regionStats = document.getElementById('regionStats');
-    regionStats.innerHTML = sorted.map(r => {
+    regionStats.innerHTML = top.map(r => {
         const pct = (r.population / maxPop * 100).toFixed(0);
         return `<div class="region-item">
             <div>
@@ -361,32 +332,30 @@ function updateMap(index) {
         const color = getDotColor(ratio);
         const numDots = Math.max(1, Math.round(r.population / popPerDot));
         const dots = generateDots(r, numDots, seed);
-
         dots.forEach(([lat, lng]) => {
             const dot = L.circleMarker([lat, lng], {
-                radius: 2,
-                fillColor: color,
-                color: color,
-                weight: 0,
-                fillOpacity: 0.65,
-                interactive: false,
+                radius: 2, fillColor: color, color: color,
+                weight: 0, fillOpacity: 0.65, interactive: false,
             });
             dot.addTo(map);
             dotMarkers.push(dot);
         });
     });
 
-    // Update info panel historical data if open
+    // Update info panel if open
     if (selectedLayer) {
-        const props = selectedLayer.feature.properties;
-        const countryName = props.NAME || props.ADMIN;
-        const histRegion = data.regions.find(r =>
-            r.name === countryName || r.civilization === countryName
-        );
-        document.getElementById('infoHistYear').textContent = data.label;
-        document.getElementById('infoHistPop').textContent = histRegion ? formatPop(histRegion.population) : 'No data';
+        updateInfoHistorical(selectedLayer.feature.properties);
     }
 }
+
+// ===== STATS PANEL TOGGLE =====
+let statsPanelVisible = true;
+document.getElementById('statsPanelToggle').addEventListener('click', () => {
+    const panel = document.getElementById('statsPanel');
+    statsPanelVisible = !statsPanelVisible;
+    panel.classList.toggle('collapsed', !statsPanelVisible);
+    document.getElementById('statsPanelToggle').textContent = statsPanelVisible ? '▼' : '▲';
+});
 
 // ===== TIMELINE =====
 const slider = document.getElementById('timelineSlider');

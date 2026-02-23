@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>History Atlas</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="styles.css?v=11">
+    <link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
     <!-- Top Bar -->
@@ -30,49 +30,64 @@
     <!-- Map -->
     <div id="map"></div>
 
-    <!-- Info Panel (slides in on country click) -->
+    <!-- Info Panel Toggle (when hidden) -->
+    <button class="info-panel-toggle" id="infoPanelToggle" style="display:none;" title="Show country info">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15 18 9 12 15 6"/>
+        </svg>
+    </button>
+
+    <!-- Info Panel (right side, fixed height) -->
     <div class="info-panel" id="infoPanel">
         <button class="info-close" id="infoPanelClose">&times;</button>
-        <div class="info-header">
-            <div class="info-country-name" id="infoName">--</div>
-            <div class="info-continent" id="infoContinent">--</div>
-        </div>
-        <div class="info-stats">
-            <div class="info-stat">
-                <div class="info-stat-label">SUBREGION</div>
-                <div class="info-stat-value" id="infoSubregion">--</div>
+        <div class="info-scroll">
+            <div class="info-header">
+                <div class="info-country-name" id="infoName">--</div>
+                <div class="info-continent" id="infoContinent">--</div>
             </div>
-            <div class="info-stat">
-                <div class="info-stat-label">POPULATION (MODERN EST.)</div>
-                <div class="info-stat-value" id="infoPopModern">--</div>
-            </div>
-            <div class="info-stat">
-                <div class="info-stat-label">GDP (USD MILLIONS)</div>
-                <div class="info-stat-value" id="infoGDP">--</div>
-            </div>
-            <div class="info-stat">
-                <div class="info-stat-label">ECONOMY</div>
-                <div class="info-stat-value" id="infoEconomy">--</div>
-            </div>
-            <div class="info-divider"></div>
-            <div class="info-stat">
-                <div class="info-stat-label">HISTORICAL POPULATION (<span id="infoHistYear">--</span>)</div>
-                <div class="info-stat-value accent" id="infoHistPop">--</div>
+            <div class="info-stats">
+                <div class="info-stat">
+                    <div class="info-stat-label">SUBREGION</div>
+                    <div class="info-stat-value" id="infoSubregion">--</div>
+                </div>
+                <div class="info-stat">
+                    <div class="info-stat-label">POPULATION (MODERN EST.)</div>
+                    <div class="info-stat-value" id="infoPopModern">--</div>
+                </div>
+                <div class="info-stat">
+                    <div class="info-stat-label">GDP (USD MILLIONS)</div>
+                    <div class="info-stat-value" id="infoGDP">--</div>
+                </div>
+                <div class="info-stat">
+                    <div class="info-stat-label">ECONOMY</div>
+                    <div class="info-stat-value" id="infoEconomy">--</div>
+                </div>
+                <div class="info-divider"></div>
+                <div class="info-stat">
+                    <div class="info-stat-label">HISTORICAL POPULATION (<span id="infoHistYear">--</span>)</div>
+                    <div class="info-stat-value accent" id="infoHistPop">--</div>
+                </div>
+                <div id="infoHistBreakdown" class="info-breakdown"></div>
             </div>
         </div>
     </div>
 
-    <!-- Timeline Stats Panel (bottom-right) -->
+    <!-- Stats Panel (bottom-right, toggleable) -->
     <div class="stats-panel" id="statsPanel">
-        <div class="stats-header">
-            <div class="stats-era" id="eraDisplay">Bronze Age</div>
-            <div class="stats-pop">
-                <span class="stats-pop-label">WORLD</span>
-                <span class="stats-pop-value" id="populationDisplay">~6.6M</span>
+        <div class="stats-header-row">
+            <div class="stats-header">
+                <div class="stats-era" id="eraDisplay">Bronze Age</div>
+                <div class="stats-pop">
+                    <span class="stats-pop-label">WORLD</span>
+                    <span class="stats-pop-value" id="populationDisplay">~6.6M</span>
+                </div>
             </div>
+            <button class="stats-toggle" id="statsPanelToggle" title="Toggle stats">&#9660;</button>
         </div>
-        <div class="stats-scale" id="dotScale">1 dot = 20K</div>
-        <div class="stats-list" id="regionStats"></div>
+        <div class="stats-body">
+            <div class="stats-scale" id="dotScale">1 dot = 20K</div>
+            <div class="stats-list" id="regionStats"></div>
+        </div>
     </div>
 
     <!-- Timeline -->
@@ -86,7 +101,9 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="data.js?v=11"></script>
-    <script src="app.js?v=11"></script>
+    <script src="countries-data.js?v=12"></script>
+    <script src="population-centers.js?v=12"></script>
+    <script src="data.js?v=12"></script>
+    <script src="app.js?v=12"></script>
 </body>
 </html>
