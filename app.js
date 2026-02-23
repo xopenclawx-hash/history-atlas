@@ -8,8 +8,16 @@ const map = L.map('map', {
     noWrap: true
 }).setView([25, 20], 3);
 
+// Base layer - dark gray
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
     attribution: '© Esri',
+    maxZoom: 8,
+    minZoom: 2,
+    noWrap: true
+}).addTo(map);
+
+// English labels layer on top
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
     maxZoom: 8,
     minZoom: 2,
     noWrap: true
