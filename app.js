@@ -296,6 +296,104 @@ function generateDots(center, numDots, seed) {
 }
 
 // Fixed: 1 dot = 100,000 people. Always.
+// Historical country name mapping
+const HISTORICAL_NAMES = {
+    // Ancient names (before 500 AD)
+    'IRQ': { ancient: 'Mesopotamia', medieval: 'Abbasid Caliphate', modern: 'Iraq' },
+    'EGY': { ancient: 'Ancient Egypt', medieval: 'Egypt', modern: 'Egypt' },
+    'GRC': { ancient: 'Ancient Greece', medieval: 'Byzantium', modern: 'Greece' },
+    'ITA': { ancient: 'Roman Republic', medieval: 'Italian States', modern: 'Italy' },
+    'IRN': { ancient: 'Persia', medieval: 'Persia', modern: 'Iran' },
+    'TUR': { ancient: 'Anatolia', medieval: 'Ottoman Empire', modern: 'Turkey' },
+    'CHN': { ancient: 'Ancient China', medieval: 'China', modern: 'China' },
+    'IND': { ancient: 'Ancient India', medieval: 'India', modern: 'India' },
+    'PAK': { ancient: 'Indus Valley', medieval: 'India (West)', modern: 'Pakistan' },
+    'BGD': { ancient: 'Bengal', medieval: 'Bengal', modern: 'Bangladesh' },
+    'SYR': { ancient: 'Levant', medieval: 'Syria', modern: 'Syria' },
+    'LBN': { ancient: 'Phoenicia', medieval: 'Lebanon', modern: 'Lebanon' },
+    'ISR': { ancient: 'Canaan', medieval: 'Palestine', modern: 'Israel' },
+    'PSE': { ancient: 'Canaan', medieval: 'Palestine', modern: 'Palestine' },
+    'JOR': { ancient: 'Transjordan', medieval: 'Jordan', modern: 'Jordan' },
+    'SDN': { ancient: 'Nubia', medieval: 'Sudan', modern: 'Sudan' },
+    'ETH': { ancient: 'Aksum', medieval: 'Ethiopia', modern: 'Ethiopia' },
+    'MNG': { ancient: 'Xiongnu Steppe', medieval: 'Mongol Empire', modern: 'Mongolia' },
+    'MMR': { ancient: 'Burma', medieval: 'Burma', modern: 'Myanmar' },
+    'KHM': { ancient: 'Funan', medieval: 'Khmer Empire', modern: 'Cambodia' },
+    'VNM': { ancient: 'Van Lang', medieval: 'Dai Viet', modern: 'Vietnam' },
+    'IDN': { ancient: 'Sunda', medieval: 'Majapahit', modern: 'Indonesia' },
+    'MEX': { ancient: 'Mesoamerica', medieval: 'Aztec Empire', modern: 'Mexico' },
+    'PER': { ancient: 'Norte Chico', medieval: 'Inca Empire', modern: 'Peru' },
+    'GBR': { ancient: 'Britannia', medieval: 'England', modern: 'United Kingdom' },
+    'FRA': { ancient: 'Gaul', medieval: 'France', modern: 'France' },
+    'DEU': { ancient: 'Germania', medieval: 'Holy Roman Empire', modern: 'Germany' },
+    'ESP': { ancient: 'Hispania', medieval: 'Spain', modern: 'Spain' },
+    'RUS': { ancient: 'Scythia', medieval: 'Rus\'/Muscovy', modern: 'Russia' },
+    'USA': { ancient: '', medieval: '', modern: 'United States' },
+    'BRA': { ancient: '', medieval: '', modern: 'Brazil' },
+    'JPN': { ancient: 'Wa/Yamato', medieval: 'Japan', modern: 'Japan' },
+    'KOR': { ancient: 'Gojoseon', medieval: 'Goryeo', modern: 'South Korea' },
+    'PRK': { ancient: 'Gojoseon', medieval: 'Goryeo', modern: 'North Korea' },
+    'NGA': { ancient: 'Nok', medieval: 'Hausa States', modern: 'Nigeria' },
+    'COD': { ancient: 'Congo Basin', medieval: 'Kongo', modern: 'DR Congo' },
+    'TZA': { ancient: 'East Africa', medieval: 'Swahili Coast', modern: 'Tanzania' },
+    'ZAF': { ancient: 'Southern Africa', medieval: 'Southern Africa', modern: 'South Africa' },
+    'SAU': { ancient: 'Arabia', medieval: 'Arabia', modern: 'Saudi Arabia' },
+    'AFG': { ancient: 'Gandhara', medieval: 'Khorasan', modern: 'Afghanistan' },
+    'UZB': { ancient: 'Sogdiana', medieval: 'Transoxiana', modern: 'Uzbekistan' },
+};
+
+// Modern ISO3 -> name fallback (from countries-data.js if loaded, or simple map)
+const ISO_NAMES = {
+    'USA':'United States','CHN':'China','IND':'India','IDN':'Indonesia','PAK':'Pakistan',
+    'BRA':'Brazil','NGA':'Nigeria','BGD':'Bangladesh','RUS':'Russia','MEX':'Mexico',
+    'JPN':'Japan','ETH':'Ethiopia','PHL':'Philippines','EGY':'Egypt','VNM':'Vietnam',
+    'COD':'DR Congo','TUR':'Turkey','IRN':'Iran','DEU':'Germany','THA':'Thailand',
+    'GBR':'United Kingdom','FRA':'France','ITA':'Italy','ZAF':'South Africa','TZA':'Tanzania',
+    'MMR':'Myanmar','KEN':'Kenya','KOR':'South Korea','COL':'Colombia','ESP':'Spain',
+    'UGA':'Uganda','ARG':'Argentina','DZA':'Algeria','SDN':'Sudan','UKR':'Ukraine',
+    'IRQ':'Iraq','AFG':'Afghanistan','POL':'Poland','CAN':'Canada','MAR':'Morocco',
+    'SAU':'Saudi Arabia','UZB':'Uzbekistan','PER':'Peru','AGO':'Angola','MYS':'Malaysia',
+    'MOZ':'Mozambique','GHA':'Ghana','YEM':'Yemen','NPL':'Nepal','VEN':'Venezuela',
+    'MDG':'Madagascar','CMR':'Cameroon','CIV':"Cote d'Ivoire",'PRK':'North Korea',
+    'AUS':'Australia','TWN':'Taiwan','NER':'Niger','LKA':'Sri Lanka','BFA':'Burkina Faso',
+    'MLI':'Mali','ROU':'Romania','MWI':'Malawi','CHL':'Chile','KAZ':'Kazakhstan',
+    'ZMB':'Zambia','GTM':'Guatemala','ECU':'Ecuador','SYR':'Syria','NLD':'Netherlands',
+    'SEN':'Senegal','KHM':'Cambodia','TCD':'Chad','SOM':'Somalia','ZWE':'Zimbabwe',
+    'GIN':'Guinea','RWA':'Rwanda','BEN':'Benin','BDI':'Burundi','TUN':'Tunisia',
+    'BOL':'Bolivia','BEL':'Belgium','HTI':'Haiti','CUB':'Cuba','SSD':'South Sudan',
+    'DOM':'Dominican Republic','CZE':'Czechia','GRC':'Greece','JOR':'Jordan',
+    'PRT':'Portugal','AZE':'Azerbaijan','SWE':'Sweden','HUN':'Hungary','BLR':'Belarus',
+    'HND':'Honduras','ISR':'Israel','TJK':'Tajikistan','AUT':'Austria','PNG':'Papua New Guinea',
+    'CHE':'Switzerland','SLE':'Sierra Leone','TGO':'Togo','HKG':'Hong Kong',
+    'LAO':'Laos','PRY':'Paraguay','BGR':'Bulgaria','LBY':'Libya','LBN':'Lebanon',
+    'NIC':'Nicaragua','KGZ':'Kyrgyzstan','SLV':'El Salvador','TKM':'Turkmenistan',
+    'SGP':'Singapore','DNK':'Denmark','FIN':'Finland','SVK':'Slovakia','NOR':'Norway',
+    'PSE':'Palestine','OMN':'Oman','CRI':'Costa Rica','LBR':'Liberia','IRL':'Ireland',
+    'CAF':'Central African Republic','NZL':'New Zealand','MRT':'Mauritania',
+    'PAN':'Panama','KWT':'Kuwait','HRV':'Croatia','MDA':'Moldova','GEO':'Georgia',
+    'ERI':'Eritrea','URY':'Uruguay','MNG':'Mongolia','BIH':'Bosnia','ARM':'Armenia',
+    'ALB':'Albania','LTU':'Lithuania','QAT':'Qatar','JAM':'Jamaica','NAM':'Namibia',
+    'BWA':'Botswana','LSO':'Lesotho','GMB':'Gambia','GAB':'Gabon','SVN':'Slovenia',
+    'MKD':'N. Macedonia','LVA':'Latvia','GNB':'Guinea-Bissau','BHR':'Bahrain',
+    'SWZ':'Eswatini','TTO':'Trinidad & Tobago','TLS':'Timor-Leste','EST':'Estonia',
+    'MUS':'Mauritius','CYP':'Cyprus','FJI':'Fiji','DJI':'Djibouti','COM':'Comoros',
+    'GUY':'Guyana','BTN':'Bhutan','SUR':'Suriname','MNE':'Montenegro','LUX':'Luxembourg',
+    'SLB':'Solomon Islands','CPV':'Cape Verde','BRN':'Brunei','MLT':'Malta',
+    'BHS':'Bahamas','MHL':'Marshall Islands','WSM':'Samoa','TON':'Tonga',
+    'VUT':'Vanuatu','PLW':'Palau','FSM':'Micronesia',
+};
+
+function getCountryName(iso, year) {
+    // Historical name based on era
+    if (HISTORICAL_NAMES[iso]) {
+        const h = HISTORICAL_NAMES[iso];
+        if (year < 500) return h.ancient || h.modern || iso;
+        if (year < 1500) return h.medieval || h.modern || iso;
+        return h.modern || iso;
+    }
+    return ISO_NAMES[iso] || iso;
+}
+
 const POP_PER_DOT = 100000;
 
 function updateMap(index) {
@@ -312,17 +410,25 @@ function updateMap(index) {
     const total = centers.reduce((s, c) => s + c.pop, 0);
     document.getElementById('populationDisplay').textContent = '~' + formatPop(total);
 
-    const maxPop = Math.max(...centers.map(c => c.pop));
-    const sorted = [...centers].sort((a, b) => b.pop - a.pop);
+    // Aggregate by country
+    const byCountry = {};
+    centers.forEach(c => {
+        const iso = c.c || 'UNK';
+        if (!byCountry[iso]) byCountry[iso] = { iso, pop: 0 };
+        byCountry[iso].pop += c.pop;
+    });
+    const countrySorted = Object.values(byCountry).sort((a, b) => b.pop - a.pop);
+    const maxPop = countrySorted.length > 0 ? countrySorted[0].pop : 1;
 
-    // Stats panel — top 30
-    const top = sorted.slice(0, 30);
+    // Stats panel — top 30 countries
+    const top = countrySorted.slice(0, 30);
     const regionStats = document.getElementById('regionStats');
     regionStats.innerHTML = top.map(c => {
         const pct = (c.pop / maxPop * 100).toFixed(0);
+        const displayName = getCountryName(c.iso, year);
         return `<div class="region-item">
             <div>
-                <div class="region-name" title="${c.name}">${c.name}</div>
+                <div class="region-name" title="${c.iso}">${displayName}</div>
                 <div class="region-bar"><div class="region-bar-fill" style="width:${pct}%"></div></div>
             </div>
             <div class="region-pop">${formatPop(c.pop)}</div>
@@ -333,8 +439,9 @@ function updateMap(index) {
     const seed = year + 10000;
     document.getElementById('dotScale').textContent = '1 dot = 100K';
 
+    const maxCenterPop = Math.max(...centers.map(c => c.pop));
     centers.forEach(c => {
-        const ratio = c.pop / maxPop;
+        const ratio = c.pop / maxCenterPop;
         const color = getDotColor(ratio);
         const numDots = Math.max(3, Math.round(c.pop / POP_PER_DOT));
         const dots = generateDots(c, numDots, seed);

@@ -501,6 +501,8 @@ def build_era(year, country_pops):
             p = int(urban_pop * weights[i])
             if p > 0:
                 sub_centers = subdivide_center(lat, lng, p, name)
+                for sc in sub_centers:
+                    sc["c"] = iso3
                 centers.extend(sub_centers)
         
         # ---- RURAL: scatter across country territory ----
@@ -517,7 +519,8 @@ def build_era(year, country_pops):
                 centers.append({
                     "lat": lat, "lng": lng,
                     "pop": rural_per_point,
-                    "name": iso3 + " rural"
+                    "name": iso3 + " rural",
+                    "c": iso3
                 })
     
     return centers
