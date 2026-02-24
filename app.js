@@ -129,6 +129,46 @@ function getNpiBinIndex(npi) {
     return NPI_BINS.length - 1;
 }
 
+// GDPPC bins (2015 US$ per capita)
+const GDPPC_BINS = [
+    { max: 0,       color: '#0f172a', opacity: 0.03, label: 'No data', labelZh: '无数据' },
+    { max: 500,     color: '#1a1035', opacity: 0.25, label: '0',       labelZh: '0' },
+    { max: 1000,    color: '#261545', opacity: 0.35, label: '$500',    labelZh: '$500' },
+    { max: 2000,    color: '#351b5a', opacity: 0.42, label: '$1K',     labelZh: '$1千' },
+    { max: 5000,    color: '#472370', opacity: 0.50, label: '$2K',     labelZh: '$2千' },
+    { max: 10000,   color: '#5b2d88', opacity: 0.58, label: '$5K',     labelZh: '$5千' },
+    { max: 20000,   color: '#7039a0', opacity: 0.65, label: '$10K',    labelZh: '$1万' },
+    { max: 40000,   color: '#8b4fb8', opacity: 0.72, label: '$20K',    labelZh: '$2万' },
+    { max: 70000,   color: '#a78bfa', opacity: 0.80, label: '$40K',    labelZh: '$4万' },
+    { max: Infinity,color: '#c4b5fd', opacity: 0.88, label: '>$70K',   labelZh: '>$7万' },
+];
+
+function getGdppcColor(v) {
+    if (!v || v <= 0) return { color: GDPPC_BINS[0].color, opacity: GDPPC_BINS[0].opacity };
+    for (let i = 1; i < GDPPC_BINS.length; i++) {
+        if (v <= GDPPC_BINS[i].max) return { color: GDPPC_BINS[i].color, opacity: GDPPC_BINS[i].opacity };
+    }
+    return { color: GDPPC_BINS[GDPPC_BINS.length-1].color, opacity: GDPPC_BINS[GDPPC_BINS.length-1].opacity };
+}
+
+function getGdppcBinIndex(v) {
+    if (!v || v <= 0) return 0;
+    for (let i = 1; i < GDPPC_BINS.length; i++) {
+        if (v <= GDPPC_BINS[i].max) return i;
+    }
+    return GDPPC_BINS.length - 1;
+}
+
+function formatGdppc(n) {
+    if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'K';
+    return '$' + Math.round(n);
+}
+
+function formatGdppcShort(n) {
+    if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'K';
+    return '$' + Math.round(n);
+}
+
 function formatNpi(n) {
     if (n >= 1) return n.toFixed(1) + '% of world';
     return n.toFixed(2) + '% of world';
@@ -194,12 +234,18 @@ function getDefaultStyle() {
 
 let currentGdpData = {};
 let currentNpiData = {};
+let currentGdppcData = {};
 
 function applyPopStyle(layer) {
     const iso = getISO(layer.feature);
     let color, opacity, hasData;
     
-    if (activeLayer === 'npi') {
+    if (activeLayer === 'gdppc') {
+        const v = currentGdppcData[iso] || 0;
+        const result = getGdppcColor(v);
+        color = result.color; opacity = result.opacity;
+        hasData = v > 0;
+    } else if (activeLayer === 'npi') {
         const npi = currentNpiData[iso] || 0;
         const result = getNpiColor(npi);
         color = result.color; opacity = result.opacity;
@@ -216,7 +262,7 @@ function applyPopStyle(layer) {
         hasData = pop > 0;
     }
     
-    const borderColors = { pop: 'rgba(56,189,248,0.15)', gdp: 'rgba(251,191,36,0.15)', npi: 'rgba(255,107,107,0.15)' };
+    const borderColors = { pop: 'rgba(56,189,248,0.15)', gdp: 'rgba(251,191,36,0.15)', npi: 'rgba(255,107,107,0.15)', gdppc: 'rgba(167,139,250,0.15)' };
     const borderColor = borderColors[activeLayer] || borderColors.pop;
     layer.setStyle({
         fillColor: color, fillOpacity: opacity,
@@ -233,9 +279,9 @@ function drawSparkline(iso, currentYear, layer) {
     layer = layer || 'pop';
     const canvas = document.getElementById('tooltipSparkline');
     const ctx = canvas.getContext('2d');
-    const tsMap = { pop: COUNTRY_TIMESERIES, gdp: typeof GDP_TIMESERIES !== 'undefined' ? GDP_TIMESERIES : {}, npi: typeof NPI_TIMESERIES !== 'undefined' ? NPI_TIMESERIES : {} };
+    const tsMap = { pop: COUNTRY_TIMESERIES, gdp: typeof GDP_TIMESERIES !== 'undefined' ? GDP_TIMESERIES : {}, npi: typeof NPI_TIMESERIES !== 'undefined' ? NPI_TIMESERIES : {}, gdppc: typeof GDPPC_TIMESERIES !== 'undefined' ? GDPPC_TIMESERIES : {} };
     const ts = (tsMap[layer] || {})[iso];
-    const colors = { pop: ['#1d4ed8','rgba(29,78,216,0.08)'], gdp: ['#d97706','rgba(217,119,6,0.08)'], npi: ['#ef4444','rgba(239,68,68,0.08)'] };
+    const colors = { pop: ['#1d4ed8','rgba(29,78,216,0.08)'], gdp: ['#d97706','rgba(217,119,6,0.08)'], npi: ['#ef4444','rgba(239,68,68,0.08)'], gdppc: ['#a78bfa','rgba(167,139,250,0.08)'] };
     const [lineColor, fillColor] = colors[layer] || colors.pop;
     
     // HiDPI support
@@ -329,7 +375,13 @@ function showTooltip(e, layer) {
     
     document.getElementById('tooltipName').textContent = name;
     document.getElementById('tooltipYear').textContent = yearLabel(year);
-    if (activeLayer === 'npi') {
+    if (activeLayer === 'gdppc') {
+        const v = currentGdppcData[iso] || 0;
+        document.getElementById('tooltipLabel').textContent = currentLang === 'zh' ? '人均 GDP (2015 US$)' : 'GDP per Capita (2015 US$)';
+        document.getElementById('tooltipPop').textContent = v > 0 ? formatGdppc(v) : t('noData');
+        document.getElementById('tooltipPop').style.color = v > 0 ? '#a78bfa' : '#9ca3af';
+        drawSparkline(iso, year, 'gdppc');
+    } else if (activeLayer === 'npi') {
         const npi = currentNpiData[iso] || 0;
         document.getElementById('tooltipLabel').textContent = currentLang === 'zh' ? '综合实力' : 'National Strength';
         document.getElementById('tooltipPop').textContent = npi > 0 ? formatNpi(npi) : t('noData');
@@ -347,9 +399,8 @@ function showTooltip(e, layer) {
         document.getElementById('tooltipPop').style.color = pop > 0 ? '#1d4ed8' : '#9ca3af';
         drawSparkline(iso, year, 'pop');
     }
-    document.getElementById('tooltipPop').style.color = pop > 0 ? '#1d4ed8' : '#9ca3af';
-    
-    drawSparkline(iso, year);
+    // Use correct sparkline for active layer
+    drawSparkline(iso, year, activeLayer);
     
     // Position
     const mouseX = e.originalEvent.clientX;
@@ -384,7 +435,9 @@ fetch('countries.geojson?v=13')
                         });
                         layer.bringToFront();
                         showTooltip(e, layer);
-                        if (activeLayer === 'npi') {
+                        if (activeLayer === 'gdppc') {
+                            highlightLegendBin(getGdppcBinIndex(currentGdppcData[getISO(feature)] || 0));
+                        } else if (activeLayer === 'npi') {
                             highlightLegendBin(getNpiBinIndex(currentNpiData[getISO(feature)] || 0));
                         } else if (activeLayer === 'gdp') {
                             highlightLegendBin(getGdpBinIndex(currentGdpData[getISO(feature)] || 0));
@@ -451,6 +504,7 @@ function updateMap(index) {
     currentPopData = OWID_POP[yearStr] || {};
     currentGdpData = (typeof OWID_GDP !== 'undefined' && OWID_GDP[yearStr]) || {};
     currentNpiData = (typeof OWID_NPI !== 'undefined' && OWID_NPI[yearStr]) || {};
+    currentGdppcData = (typeof OWID_GDPPC !== 'undefined' && OWID_GDPPC[yearStr]) || {};
     
     document.getElementById('yearDisplay').textContent = yearLabel(year);
     
@@ -466,7 +520,15 @@ function updateMap(index) {
     
     // Stats panel — active layer
     let sorted, totalDisplay, fmtFn;
-    if (activeLayer === 'npi') {
+    if (activeLayer === 'gdppc') {
+        sorted = Object.entries(currentGdppcData)
+            .map(([iso, val]) => ({ iso, val }))
+            .filter(c => c.val > 0)
+            .sort((a, b) => b.val - a.val);
+        const avg = sorted.length > 0 ? Math.round(sorted.reduce((s,c) => s + c.val, 0) / sorted.length) : 0;
+        totalDisplay = '~' + formatGdppcShort(avg) + ' avg';
+        fmtFn = formatGdppcShort;
+    } else if (activeLayer === 'npi') {
         sorted = Object.entries(currentNpiData)
             .map(([iso, val]) => ({ iso, val }))
             .filter(c => c.val > 0)
@@ -600,7 +662,7 @@ playBtn.addEventListener('click', () => {
 function buildLegend() {
     const legend = document.getElementById('colorLegend');
     let html = '';
-    const binMap = { pop: POP_BINS, gdp: GDP_BINS, npi: NPI_BINS };
+    const binMap = { pop: POP_BINS, gdp: GDP_BINS, npi: NPI_BINS, gdppc: GDPPC_BINS };
     const bins = binMap[activeLayer] || POP_BINS;
     const ndLabel = currentLang === 'zh' ? '无数据' : 'No data';
     html += `<div class="legend-item"><div class="legend-block legend-hatched"></div><span>${ndLabel}</span></div>`;
@@ -643,6 +705,7 @@ function applyLanguage() {
     document.getElementById('tabPop').textContent = t('tabPop');
     document.getElementById('tabGdp').textContent = t('tabGdp');
     document.getElementById('tabNpi').textContent = t('tabNpi');
+    if (document.getElementById('tabGdppc')) document.getElementById('tabGdppc').textContent = t('tabGdppc');
     // Rebuild legend with localized labels
     buildLegend();
     // Rebind tooltips with new language
@@ -675,7 +738,99 @@ document.getElementById('statsToggleBtn').textContent = t('hide');
 document.getElementById('tabPop').textContent = t('tabPop');
 document.getElementById('tabGdp').textContent = t('tabGdp');
 document.getElementById('tabNpi').textContent = t('tabNpi');
+if (document.getElementById('tabGdppc')) document.getElementById('tabGdppc').textContent = t('tabGdppc');
 buildLegend();
+
+// ===== HISTORICAL EVENTS SYSTEM =====
+let currentEvent = null;
+let eventTimeout = null;
+
+function findEventForYear(year) {
+    if (typeof HISTORICAL_EVENTS === 'undefined') return null;
+    // Find event within 5 years of current year
+    let best = null, bestDist = Infinity;
+    for (const evt of HISTORICAL_EVENTS) {
+        const dist = Math.abs(evt.year - year);
+        if (dist <= 5 && dist < bestDist) { best = evt; bestDist = dist; }
+    }
+    return best;
+}
+
+function showEvent(evt) {
+    if (!evt || currentEvent === evt) return;
+    currentEvent = evt;
+    const banner = document.getElementById('eventBanner');
+    banner.className = 'event-banner ' + (evt.type || '');
+    document.getElementById('eventIcon').textContent = evt.icon || '';
+    document.getElementById('eventTitle').textContent = currentLang === 'zh' ? evt.titleZh : evt.title;
+    document.getElementById('eventDesc').textContent = currentLang === 'zh' ? evt.descZh : evt.desc;
+    banner.style.display = 'flex';
+    // Re-trigger animation
+    banner.style.animation = 'none';
+    banner.offsetHeight;
+    banner.style.animation = '';
+    
+    if (eventTimeout) clearTimeout(eventTimeout);
+    eventTimeout = setTimeout(() => {
+        banner.style.display = 'none';
+        currentEvent = null;
+    }, 4000);
+}
+
+function hideEvent() {
+    document.getElementById('eventBanner').style.display = 'none';
+    currentEvent = null;
+}
+
+// Build timeline dots
+function buildTimelineDots() {
+    if (typeof HISTORICAL_EVENTS === 'undefined') return;
+    const track = document.querySelector('.timeline-track');
+    const minYear = TIME_PERIODS[0];
+    const maxYear = TIME_PERIODS[TIME_PERIODS.length - 1];
+    const range = maxYear - minYear;
+    
+    HISTORICAL_EVENTS.forEach(evt => {
+        const pct = ((evt.year - minYear) / range) * 100;
+        if (pct < 0 || pct > 100) return;
+        const dot = document.createElement('div');
+        dot.className = 'timeline-dot';
+        dot.style.left = pct + '%';
+        dot.style.backgroundColor = EVENT_COLORS[evt.type] || '#38bdf8';
+        const tip = document.createElement('div');
+        tip.className = 'timeline-dot-tooltip';
+        tip.textContent = (currentLang === 'zh' ? evt.titleZh : evt.title) + ' (' + yearLabel(evt.year) + ')';
+        dot.appendChild(tip);
+        dot.addEventListener('click', () => {
+            // Jump to this year
+            let bestIdx = 0, bestDist = Infinity;
+            TIME_PERIODS.forEach((y, i) => {
+                const d = Math.abs(y - evt.year);
+                if (d < bestDist) { bestIdx = i; bestDist = d; }
+            });
+            slider.value = (bestIdx / (TIME_PERIODS.length - 1)) * 1000;
+            updateMap(bestIdx);
+            showEvent(evt);
+        });
+        track.appendChild(dot);
+    });
+}
+buildTimelineDots();
+
+// Hook event detection into updateMap
+const _origUpdateMap = updateMap;
+updateMap = function(index) {
+    _origUpdateMap(index);
+    const year = TIME_PERIODS[index];
+    const evt = findEventForYear(year);
+    if (evt) showEvent(evt);
+};
+
+// Add tab label for gdppc
+const tabGdppc = document.getElementById('tabGdppc');
+if (tabGdppc) {
+    tabGdppc.textContent = currentLang === 'zh' ? '人均' : 'Per Capita';
+}
 
 // Data source toggle
 document.getElementById('dataSourceToggle').addEventListener('click', (e) => {

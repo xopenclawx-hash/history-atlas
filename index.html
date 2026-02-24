@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>History Atlas</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=57"/>
+    <link rel="stylesheet" href="styles.css?v=58"/>
 </head>
 <body>
     <!-- Header -->
@@ -43,6 +43,7 @@
             <button class="stats-tab active" data-layer="pop" id="tabPop">Population</button>
             <button class="stats-tab" data-layer="gdp" id="tabGdp">GDP</button>
             <button class="stats-tab" data-layer="npi" id="tabNpi">Strength</button>
+            <button class="stats-tab" data-layer="gdppc" id="tabGdppc">Per Capita</button>
         </div>
         <div class="stats-header">
             <span id="worldLabel">WORLD</span>
@@ -55,6 +56,15 @@
 
     <!-- Color legend — discrete bins -->
     <div class="color-legend" id="colorLegend"></div>
+
+    <!-- Event banner -->
+    <div class="event-banner" id="eventBanner" style="display:none;">
+        <span class="event-icon" id="eventIcon"></span>
+        <div class="event-text">
+            <div class="event-title" id="eventTitle"></div>
+            <div class="event-desc" id="eventDesc"></div>
+        </div>
+    </div>
 
     <!-- Timeline -->
     <div class="timeline-container">
@@ -81,10 +91,12 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="owid-data.js?v=57"></script>
-    <script src="owid-gdp.js?v=57"></script>
-    <script src="owid-npi.js?v=57"></script>
-    <script src="i18n.js?v=57"></script>
-    <script src="app.js?v=57"></script>
+    <script src="owid-data.js?v=58"></script>
+    <script src="owid-gdp.js?v=58"></script>
+    <script src="owid-npi.js?v=58"></script>
+    <script src="owid-gdppc.js?v=58"></script>
+    <script src="events.js?v=58"></script>
+    <script src="i18n.js?v=58"></script>
+    <script src="app.js?v=58"></script>
 </body>
 </html>

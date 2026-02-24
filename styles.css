@@ -38,6 +38,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .stats-tab.active { color: #38bdf8; border-bottom-color: #38bdf8; }
 .stats-tab.active[data-layer="gdp"] { color: #fbbf24; border-bottom-color: #fbbf24; }
 .stats-tab.active[data-layer="npi"] { color: #ef4444; border-bottom-color: #ef4444; }
+.stats-tab.active[data-layer="gdppc"] { color: #a78bfa; border-bottom-color: #a78bfa; }
 .stats-header { padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 11px; letter-spacing: 1.5px; color: #64748b; }
 .stats-total { font-size: 18px; font-weight: 600; color: #38bdf8; letter-spacing: 0; }
 .stats-body { flex: 1; overflow-y: auto; padding: 8px 0; scrollbar-width: thin; scrollbar-color: #1e293b transparent; }
@@ -88,3 +89,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .country-tooltip { background: rgba(15,23,42,0.95) !important; border: 1px solid rgba(56,189,248,0.2) !important; color: #e2e8f0 !important; border-radius: 6px !important; padding: 4px 10px !important; font-size: 12px !important; box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important; }
 .leaflet-tooltip-left::before { border-left-color: rgba(15,23,42,0.95) !important; }
 .leaflet-tooltip-right::before { border-right-color: rgba(15,23,42,0.95) !important; }
+
+/* Event banner */
+.event-banner { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 950; display: flex; align-items: center; gap: 12px; padding: 10px 20px; border-radius: 10px; background: rgba(10,14,23,0.95); border: 1px solid rgba(56,189,248,0.3); backdrop-filter: blur(12px); max-width: 500px; animation: eventSlideIn 0.4s ease-out; pointer-events: none; }
+.event-banner.war { border-color: rgba(239,68,68,0.5); }
+.event-banner.collapse { border-color: rgba(249,115,22,0.5); }
+.event-banner.plague { border-color: rgba(168,85,247,0.5); }
+.event-banner.science { border-color: rgba(16,185,129,0.5); }
+.event-icon { font-size: 24px; flex-shrink: 0; }
+.event-title { font-size: 14px; font-weight: 700; color: #e2e8f0; }
+.event-desc { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+@keyframes eventSlideIn { from { opacity: 0; transform: translateX(-50%) translateY(-10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+/* Timeline event dots */
+.timeline-dot { position: absolute; width: 6px; height: 6px; border-radius: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2; cursor: pointer; transition: transform 0.15s; }
+.timeline-dot:hover { transform: translate(-50%, -50%) scale(2); }
+.timeline-dot-tooltip { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: rgba(15,23,42,0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 4px 8px; font-size: 10px; color: #e2e8f0; white-space: nowrap; display: none; pointer-events: none; margin-bottom: 8px; }
+.timeline-dot:hover .timeline-dot-tooltip { display: block; }
