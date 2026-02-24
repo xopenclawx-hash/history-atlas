@@ -7,9 +7,9 @@ const map = L.map('map', {
     minZoom: 2, maxZoom: 10,
     zoomSnap: 0.5, zoomDelta: 0.5,
     wheelPxPerZoomLevel: 120,
-    maxBounds: [[-85, -180], [85, 180]],
-    maxBoundsViscosity: 1.0,  // hard stop, no bounce
-}).setView([30, 20], 2.5);
+    maxBounds: [[-90, -200], [90, 200]],
+    maxBoundsViscosity: 1.0,
+}).setView([25, 10], 2);
 
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; CARTO', maxZoom: 10, subdomains: 'abcd', noWrap: true, bounds: [[-85,-180],[85,180]]
@@ -101,9 +101,19 @@ function drawSparkline(iso, currentYear) {
     const canvas = document.getElementById('tooltipSparkline');
     const ctx = canvas.getContext('2d');
     const ts = COUNTRY_TIMESERIES[iso];
-    if (!ts || ts.length < 2) { ctx.clearRect(0,0,180,50); return; }
     
-    ctx.clearRect(0, 0, 180, 50);
+    // HiDPI support
+    const dpr = window.devicePixelRatio || 1;
+    const w = 180, h = 50;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.scale(dpr, dpr);
+    
+    if (!ts || ts.length < 2) { ctx.clearRect(0,0,w,h); return; }
+    
+    ctx.clearRect(0, 0, w, h);
     
     const maxPop = Math.max(...ts.map(d => d[1]));
     const minYear = ts[0][0], maxYear = ts[ts.length-1][0];
