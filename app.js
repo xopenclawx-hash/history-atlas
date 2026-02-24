@@ -747,11 +747,11 @@ let eventTimeout = null;
 
 function findEventForYear(year) {
     if (typeof HISTORICAL_EVENTS === 'undefined') return null;
-    // Find event within 5 years of current year
+    // Find event within 2 years of current year (tight matching)
     let best = null, bestDist = Infinity;
     for (const evt of HISTORICAL_EVENTS) {
         const dist = Math.abs(evt.year - year);
-        if (dist <= 5 && dist < bestDist) { best = evt; bestDist = dist; }
+        if (dist <= 2 && dist < bestDist) { best = evt; bestDist = dist; }
     }
     return best;
 }
