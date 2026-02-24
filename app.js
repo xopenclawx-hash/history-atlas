@@ -336,10 +336,10 @@ function updateMap(index) {
     centers.forEach(c => {
         const ratio = c.pop / maxPop;
         const color = getDotColor(ratio);
-        const numDots = Math.max(1, Math.round(c.pop / POP_PER_DOT));
+        const numDots = Math.max(3, Math.round(c.pop / POP_PER_DOT));
         const dots = generateDots(c, numDots, seed);
         const zoom = map.getZoom();
-        const dotRadius = zoom < 3 ? 1 : zoom < 5 ? 1.5 : 2;
+        const dotRadius = zoom < 3 ? 1.5 : zoom < 5 ? 2 : 2.5;
         dots.forEach(([lat, lng]) => {
             const dot = L.circleMarker([lat, lng], {
                 radius: dotRadius, fillColor: color, color: color,
