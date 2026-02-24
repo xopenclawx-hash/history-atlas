@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>History Atlas</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=37"/>
+    <link rel="stylesheet" href="styles.css?v=38"/>
 </head>
 <body>
     <!-- Header -->
@@ -46,16 +46,8 @@
         <button class="stats-toggle" id="statsToggleBtn">HIDE</button>
     </div>
 
-    <!-- Color legend (like OWID) -->
-    <div class="color-legend">
-        <span class="legend-label">No data</span>
-        <div class="legend-bar-hatched"></div>
-        <span class="legend-label">0</span>
-        <div class="legend-gradient"></div>
-        <span class="legend-label">10M</span>
-        <span class="legend-label">100M</span>
-        <span class="legend-label">1B</span>
-    </div>
+    <!-- Color legend — discrete bins -->
+    <div class="color-legend" id="colorLegend"></div>
 
     <!-- Timeline -->
     <div class="timeline-container">
@@ -81,7 +73,7 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="owid-data.js?v=37"></script>
-    <script src="app.js?v=37"></script>
+    <script src="owid-data.js?v=38"></script>
+    <script src="app.js?v=38"></script>
 </body>
 </html>

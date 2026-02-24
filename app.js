@@ -26,38 +26,34 @@ function yearLabel(y) {
     return y + ' CE';
 }
 
-// ===== COLOR SCALE (OWID-inspired, green/teal ramp) =====
+// ===== COLOR SCALE — Discrete bins matching legend exactly =====
+const POP_BINS = [
+    { max: 0,        color: '#0f172a', opacity: 0.03, label: 'No data' },
+    { max: 1e4,      color: '#1a3a4a', opacity: 0.25, label: '0' },
+    { max: 1e5,      color: '#1a5c6a', opacity: 0.35, label: '100K' },
+    { max: 1e6,      color: '#1a7a7a', opacity: 0.45, label: '1M' },
+    { max: 1e7,      color: '#20998a', opacity: 0.55, label: '10M' },
+    { max: 3e7,      color: '#2ab89a', opacity: 0.60, label: '30M' },
+    { max: 1e8,      color: '#38d4a8', opacity: 0.65, label: '100M' },
+    { max: 3e8,      color: '#18a0b8', opacity: 0.70, label: '300M' },
+    { max: 1e9,      color: '#1878a8', opacity: 0.75, label: '1B' },
+    { max: Infinity,  color: '#0e4878', opacity: 0.85, label: '>1B' },
+];
+
 function getPopColor(pop) {
-    if (!pop || pop <= 0) return { color: '#0f172a', opacity: 0.03 };
-    const logP = Math.log10(Math.max(1, pop));
-    // Better spread: 100 people to 1.5B
-    const t = Math.min(1, Math.max(0, (logP - 2) / 7.2));
-    
-    const stops = [
-        [0.0, [15, 32, 55]],     // very dark navy
-        [0.15, [12, 60, 90]],    // dark blue
-        [0.3, [10, 95, 130]],    // medium blue
-        [0.45, [20, 135, 155]],  // teal
-        [0.6, [35, 170, 160]],   // green-teal
-        [0.75, [65, 200, 185]],  // bright teal
-        [0.9, [100, 225, 200]],  // mint
-        [1.0, [140, 245, 215]],  // bright mint
-    ];
-    
-    let r = 12, g = 45, b = 72;
-    for (let i = 0; i < stops.length - 1; i++) {
-        if (t >= stops[i][0] && t <= stops[i+1][0]) {
-            const lt = (t - stops[i][0]) / (stops[i+1][0] - stops[i][0]);
-            r = Math.round(stops[i][1][0] + lt * (stops[i+1][1][0] - stops[i][1][0]));
-            g = Math.round(stops[i][1][1] + lt * (stops[i+1][1][1] - stops[i][1][1]));
-            b = Math.round(stops[i][1][2] + lt * (stops[i+1][1][2] - stops[i][1][2]));
-            break;
-        }
+    if (!pop || pop <= 0) return { color: POP_BINS[0].color, opacity: POP_BINS[0].opacity };
+    for (let i = 1; i < POP_BINS.length; i++) {
+        if (pop <= POP_BINS[i].max) return { color: POP_BINS[i].color, opacity: POP_BINS[i].opacity };
     }
-    
-    const hex = '#' + [r,g,b].map(v => Math.min(255,v).toString(16).padStart(2,'0')).join('');
-    const opacity = 0.2 + t * 0.65;
-    return { color: hex, opacity };
+    return { color: POP_BINS[POP_BINS.length-1].color, opacity: POP_BINS[POP_BINS.length-1].opacity };
+}
+
+function getPopBinIndex(pop) {
+    if (!pop || pop <= 0) return 0;
+    for (let i = 1; i < POP_BINS.length; i++) {
+        if (pop <= POP_BINS[i].max) return i;
+    }
+    return POP_BINS.length - 1;
 }
 
 function formatPop(n) {
@@ -248,10 +244,12 @@ fetch('countries.geojson?v=13')
                         });
                         layer.bringToFront();
                         showTooltip(e, layer);
+                        highlightLegendBin(getPopBinIndex(pop));
                     },
                     mouseout: function(e) {
                         applyPopStyle(layer);
                         hideTooltip();
+                        clearLegendHighlight();
                     },
                     mousemove: function(e) {
                         showTooltip(e, layer);
@@ -412,6 +410,31 @@ playBtn.addEventListener('click', () => {
         }, 400);
     }
 });
+
+// ===== BUILD LEGEND =====
+(function buildLegend() {
+    const legend = document.getElementById('colorLegend');
+    let html = '';
+    // "No data" hatched block
+    html += '<div class="legend-item"><div class="legend-block legend-hatched"></div><span>No data</span></div>';
+    // Colored blocks for each bin (skip index 0 = no data)
+    for (let i = 1; i < POP_BINS.length; i++) {
+        const b = POP_BINS[i];
+        html += `<div class="legend-item" data-bin="${i}"><div class="legend-block" style="background:${b.color};opacity:${b.opacity}"></div><span>${b.label}</span></div>`;
+    }
+    legend.innerHTML = html;
+})();
+
+// Highlight legend bin on hover
+function highlightLegendBin(binIdx) {
+    document.querySelectorAll('.legend-item').forEach((el, i) => {
+        if (i === binIdx) el.classList.add('active');
+        else el.classList.remove('active');
+    });
+}
+function clearLegendHighlight() {
+    document.querySelectorAll('.legend-item').forEach(el => el.classList.remove('active'));
+}
 
 // Data source toggle
 document.getElementById('dataSourceToggle').addEventListener('click', (e) => {
