@@ -63,29 +63,39 @@ let selectedLayer = null;
 let countryFeatures = [];
 
 function getCountryStyle(feature) {
-    const zoom = map.getZoom();
-    const colors = getContinentColor(feature.properties.CONTINENT);
-    if (zoom < 3.5) {
-        return { fillColor: colors.fill, fillOpacity: 0.06, color: colors.border, weight: 0.5, opacity: 0.2 };
-    } else if (zoom < 5) {
-        return { fillColor: colors.fill, fillOpacity: 0.1, color: colors.border, weight: 0.8, opacity: 0.35 };
-    } else {
-        return { fillColor: colors.fill, fillOpacity: 0.15, color: colors.border, weight: 1, opacity: 0.5 };
-    }
+    // Default style before population data is applied
+    return { fillColor: '#0e1525', fillOpacity: 0.05, color: '#1e293b', weight: 0.3, opacity: 0.15 };
 }
 
 function highlightFeature(e) {
     const layer = e.target;
     if (layer === selectedLayer) return;
-    const colors = getContinentColor(layer.feature.properties.CONTINENT);
-    layer.setStyle({ fillOpacity: 0.25, weight: 2, color: colors.border, opacity: 0.8 });
+    const iso = layer.feature.properties.ISO_A3;
+    const pop = countryPopData[iso] || 0;
+    layer.setStyle({ 
+        fillOpacity: Math.min(0.9, layer.options.fillOpacity + 0.2),
+        weight: 2, color: '#38bdf8', opacity: 0.8 
+    });
     layer.bringToFront();
     if (selectedLayer) selectedLayer.bringToFront();
 }
 
 function resetHighlight(e) {
     if (e.target === selectedLayer) return;
-    geoLayer.resetStyle(e.target);
+    // Reapply choropleth style for this layer
+    const layer = e.target;
+    const iso = layer.feature.properties.ISO_A3;
+    const pop = countryPopData[iso] || 0;
+    const area = getAreaForFeature(layer.feature);
+    const density = area > 0 ? pop / area : 0;
+    const { color, opacity } = getPopColor(density);
+    layer.setStyle({
+        fillColor: color,
+        fillOpacity: opacity,
+        color: pop > 0 ? '#38bdf855' : '#1e293b',
+        weight: pop > 0 ? 0.8 : 0.3,
+        opacity: pop > 0 ? 0.5 : 0.15,
+    });
 }
 
 function selectCountry(e) {
@@ -189,11 +199,9 @@ fetch('countries.geojson?v=13')
                 });
             }
         }).addTo(map);
-        map.on('zoomend', () => {
-            if (geoLayer) geoLayer.eachLayer(l => {
-                if (l !== selectedLayer) l.setStyle(getCountryStyle(l.feature));
-            });
-        });
+        // Apply choropleth after GeoJSON loads
+        applyChoropleth();
+        map.on('zoomend', () => applyChoropleth());
     });
 
 // ===== SEARCH =====
@@ -249,20 +257,9 @@ searchInput.addEventListener('input', function() {
 
 searchInput.addEventListener('blur', () => setTimeout(() => searchResults.classList.remove('active'), 200));
 
-// ===== DOT DENSITY (Canvas for performance) =====
-const dotRenderer = L.canvas({ padding: 0.5 });
-let dotMarkers = [];
+// ===== CHOROPLETH (population density coloring) =====
 let currentIndex = 0;
-
-function seededRandom(seed) {
-    let x = Math.sin(seed * 9301 + 49297) * 49297;
-    return x - Math.floor(x);
-}
-
-function clearDots() {
-    dotMarkers.forEach(m => map.removeLayer(m));
-    dotMarkers = [];
-}
+let countryPopData = {}; // ISO3 -> pop for current year
 
 function formatPop(n) {
     if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
@@ -271,31 +268,75 @@ function formatPop(n) {
     return n.toString();
 }
 
-function getDotColor(ratio) {
-    if (ratio > 0.7) return '#c084fc';
-    if (ratio > 0.5) return '#818cf8';
-    if (ratio > 0.3) return '#38bdf8';
-    if (ratio > 0.15) return '#34d399';
-    return '#22d3ee';
+// Population density -> color (cyan scale, dark to bright)
+function getPopColor(density) {
+    // density = people per sq km (approx)
+    // Scale: 0 -> dark/transparent, high -> bright cyan/purple
+    if (density <= 0) return { color: '#0e1525', opacity: 0.05 };
+    
+    // Log scale for better visual distribution
+    const logD = Math.log10(Math.max(1, density));
+    // logD ranges: 0 (1/km2) to ~3.5 (3000/km2)
+    const t = Math.min(1, logD / 3.2); // normalize to 0-1
+    
+    // Color ramp: dark blue -> cyan -> purple/magenta for very dense
+    const r = Math.round(30 + t * 150 + (t > 0.7 ? (t - 0.7) * 300 : 0));
+    const g = Math.round(20 + t * 180 - (t > 0.8 ? (t - 0.8) * 200 : 0));
+    const b = Math.round(40 + t * 210);
+    const hex = '#' + [r,g,b].map(v => Math.min(255,v).toString(16).padStart(2,'0')).join('');
+    const opacity = 0.15 + t * 0.65;
+    
+    return { color: hex, opacity };
 }
 
-// Near-zero jitter — data points are pre-validated on land
-function generateDots(center, numDots, seed) {
-    const dots = [];
-    const jitter = 0.02; // ~2km — pixel-level scatter only
-    for (let i = 0; i < numDots; i++) {
-        const s = seed + i * 7 + (center.name || '').length;
-        const r1 = seededRandom(s);
-        const r2 = seededRandom(s + 1000);
-        dots.push([
-            center.lat + (r1 - 0.5) * jitter,
-            center.lng + (r2 - 0.5) * jitter
-        ]);
+// Approximate country area in sq km from GeoJSON bounds
+function estimateArea(feature) {
+    try {
+        const geom = feature.geometry;
+        // Use a rough calculation from coordinates
+        const bounds = L.geoJSON(feature).getBounds();
+        const latSpan = bounds.getNorth() - bounds.getSouth();
+        const lngSpan = bounds.getEast() - bounds.getWest();
+        const avgLat = (bounds.getNorth() + bounds.getSouth()) / 2;
+        const kmPerDegLat = 111;
+        const kmPerDegLng = 111 * Math.cos(avgLat * Math.PI / 180);
+        return Math.abs(latSpan * kmPerDegLat * lngSpan * kmPerDegLng) * 0.6; // rough polygon fill factor
+    } catch(e) {
+        return 100000; // fallback
     }
-    return dots;
 }
 
-// Fixed: 1 dot = 100,000 people. Always.
+// Cache areas
+const countryAreas = {};
+
+function getAreaForFeature(feature) {
+    const iso = feature.properties.ISO_A3;
+    if (!countryAreas[iso]) {
+        countryAreas[iso] = estimateArea(feature);
+    }
+    return countryAreas[iso];
+}
+
+function applyChoropleth() {
+    if (!geoLayer) return;
+    geoLayer.eachLayer(layer => {
+        if (layer === selectedLayer) return; // don't override selection
+        const iso = layer.feature.properties.ISO_A3;
+        const pop = countryPopData[iso] || 0;
+        const area = getAreaForFeature(layer.feature);
+        const density = area > 0 ? pop / area : 0;
+        const { color, opacity } = getPopColor(density);
+        
+        layer.setStyle({
+            fillColor: color,
+            fillOpacity: opacity,
+            color: pop > 0 ? '#38bdf855' : '#1e293b',
+            weight: pop > 0 ? 0.8 : 0.3,
+            opacity: pop > 0 ? 0.5 : 0.15,
+        });
+    });
+}
+
 // Historical country name mapping
 const HISTORICAL_NAMES = {
     // Ancient names (before 500 AD)
@@ -397,7 +438,6 @@ function getCountryName(iso, year) {
 const POP_PER_DOT = 100000;
 
 function updateMap(index) {
-    clearDots();
     currentIndex = index;
 
     const year = TIME_PERIODS[index];
@@ -411,13 +451,14 @@ function updateMap(index) {
     document.getElementById('populationDisplay').textContent = '~' + formatPop(total);
 
     // Aggregate by country
-    const byCountry = {};
+    countryPopData = {};
     centers.forEach(c => {
         const iso = c.c || 'UNK';
-        if (!byCountry[iso]) byCountry[iso] = { iso, pop: 0 };
-        byCountry[iso].pop += c.pop;
+        countryPopData[iso] = (countryPopData[iso] || 0) + c.pop;
     });
-    const countrySorted = Object.values(byCountry).sort((a, b) => b.pop - a.pop);
+    const countrySorted = Object.entries(countryPopData)
+        .map(([iso, pop]) => ({ iso, pop }))
+        .sort((a, b) => b.pop - a.pop);
     const maxPop = countrySorted.length > 0 ? countrySorted[0].pop : 1;
 
     // Stats panel — top 30 countries
@@ -435,28 +476,11 @@ function updateMap(index) {
         </div>`;
     }).join('');
 
-    // Generate dots — fixed scale: 1 dot = 1M
-    const seed = year + 10000;
-    document.getElementById('dotScale').textContent = '1 dot = 100K';
+    // Scale indicator
+    document.getElementById('dotScale').textContent = 'Density coloring';
 
-    const maxCenterPop = Math.max(...centers.map(c => c.pop));
-    centers.forEach(c => {
-        const ratio = c.pop / maxCenterPop;
-        const color = getDotColor(ratio);
-        const numDots = Math.max(3, Math.round(c.pop / POP_PER_DOT));
-        const dots = generateDots(c, numDots, seed);
-        const zoom = map.getZoom();
-        const dotRadius = zoom < 3 ? 1.5 : zoom < 5 ? 2 : 2.5;
-        dots.forEach(([lat, lng]) => {
-            const dot = L.circleMarker([lat, lng], {
-                radius: dotRadius, fillColor: color, color: color,
-                weight: 0, fillOpacity: 0.55, interactive: false,
-                renderer: dotRenderer,
-            });
-            dot.addTo(map);
-            dotMarkers.push(dot);
-        });
-    });
+    // Apply choropleth coloring to country polygons
+    applyChoropleth();
 
     // Update info panel if open
     if (selectedLayer) {
@@ -489,8 +513,7 @@ layerTabs.forEach(tab => {
         if (activeLayer === 'population') {
             updateMap(currentIndex);
         } else {
-            // Placeholder: clear dots, show "Coming soon"
-            clearDots();
+            // Placeholder: show "Coming soon"
             document.getElementById('regionStats').innerHTML =
                 '<div style="color:#475569;padding:20px 0;text-align:center;">Coming soon</div>';
         }
