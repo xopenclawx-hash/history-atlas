@@ -318,8 +318,8 @@ function updateMap(index) {
     // Stats panel — top 25
     const sorted = Object.entries(currentPopData)
         .map(([iso, pop]) => ({ iso, pop }))
-        .sort((a, b) => b.pop - a.pop)
-        .slice(0, 25);
+        .filter(c => c.pop > 0)
+        .sort((a, b) => b.pop - a.pop);
     
     const maxPop = sorted.length > 0 ? sorted[0].pop : 1;
     const regionStats = document.getElementById('regionStats');
