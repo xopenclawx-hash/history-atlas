@@ -85,11 +85,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .data-source-detail.open { display: block; }
 
 /* Migration arrows */
-.migration-line { animation: dashMove 1s linear infinite; }
-@keyframes dashMove { to { stroke-dashoffset: -20; } }
-.migration-tooltip { background: rgba(10,14,23,0.9) !important; border: 1px solid rgba(56,189,248,0.3) !important; color: #e2e8f0 !important; border-radius: 4px !important; padding: 2px 6px !important; font-size: 10px !important; font-weight: 600 !important; box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important; white-space: nowrap !important; }
-.migration-dest { animation: destPulse 1s ease-out; }
-@keyframes destPulse { 0% { opacity: 0; transform: scale(0); } 50% { opacity: 1; transform: scale(1.5); } 100% { transform: scale(1); } }
+/* Ship migration animations */
+.ship-icon-wrapper { background: none !important; border: none !important; }
+.ship-marker { font-size: 22px; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.6)); animation: shipBob 1.2s ease-in-out infinite; pointer-events: none; }
+@keyframes shipBob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+.ship-label-wrapper { background: none !important; border: none !important; pointer-events: none; }
+.ship-label { font-size: 11px; color: #e2e8f0; text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.5); white-space: nowrap; font-weight: 500; letter-spacing: 0.3px; animation: labelFadeIn 0.4s ease-out; }
+@keyframes labelFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 /* Smooth color transitions on map */
 .leaflet-interactive { transition: fill 0.3s ease, fill-opacity 0.3s ease; }

@@ -1069,18 +1069,18 @@ playBtn.addEventListener('click', function(e) {
 // Make autoplay smoother by reducing interval
 const _origPlayBtn = playBtn.cloneNode(true);
 
-// ===== ANIMATED MIGRATION ARROWS =====
-let activeArrows = [];
-const arrowLayer = L.layerGroup().addTo(map);
+// ===== ANIMATED MIGRATION SHIPS =====
+let activeShips = [];
+const shipLayer = L.layerGroup().addTo(map);
 
-function getGreatCirclePoints(from, to, steps) {
-    // Simple interpolation with slight curve (bezier-ish)
+function getArcPoints(from, to, steps) {
     const pts = [];
-    const midLat = (from[0] + to[0]) / 2 + (Math.abs(to[1] - from[1]) > 60 ? 15 : 8);
+    const dist = Math.abs(to[1] - from[1]);
+    const arcH = dist > 100 ? 18 : dist > 50 ? 12 : 6;
+    const midLat = (from[0] + to[0]) / 2 + arcH;
     const midLng = (from[1] + to[1]) / 2;
     for (let i = 0; i <= steps; i++) {
         const t = i / steps;
-        // Quadratic bezier
         const lat = (1-t)*(1-t)*from[0] + 2*(1-t)*t*midLat + t*t*to[0];
         const lng = (1-t)*(1-t)*from[1] + 2*(1-t)*t*midLng + t*t*to[1];
         pts.push([lat, lng]);
@@ -1088,66 +1088,60 @@ function getGreatCirclePoints(from, to, steps) {
     return pts;
 }
 
-function showMigrationArrow(evt) {
-    const points = getGreatCirclePoints(evt.from, evt.to, 40);
-    const color = evt.color || ARROW_COLORS[evt.type] || '#38bdf8';
+function showMigrationShip(evt) {
+    const points = getArcPoints(evt.from, evt.to, 60);
+    const icon = evt.icon || '⛵';
+    const label = currentLang === 'zh' ? evt.labelZh : evt.label;
     
-    // Animated dashed line — bright & thick for visibility
-    const line = L.polyline([], {
-        color: color, weight: 3, opacity: 0.9,
-        dashArray: '8,5', className: 'migration-line',
-        pane: 'markerPane'  // render above country polygons
-    }).addTo(arrowLayer);
+    // Faint trail line
+    const trail = L.polyline([], {
+        color: 'rgba(255,255,255,0.15)', weight: 1.5,
+        dashArray: '4,6', pane: 'markerPane'
+    }).addTo(shipLayer);
     
-    // Animate: draw line progressively
+    // Ship icon as DivIcon marker
+    const shipIcon = L.divIcon({
+        html: `<div class="ship-marker">${icon}</div>`,
+        iconSize: [28, 28], iconAnchor: [14, 14],
+        className: 'ship-icon-wrapper'
+    });
+    const ship = L.marker(evt.from, { icon: shipIcon, pane: 'markerPane', zIndexOffset: 1000 }).addTo(shipLayer);
+    
+    // Animate ship along path
     let step = 0;
-    const drawn = [];
+    const trailPts = [];
     const interval = setInterval(() => {
         if (step >= points.length) {
             clearInterval(interval);
-            // Add arrowhead at destination
-            const marker = L.circleMarker(evt.to, {
-                radius: 7, fillColor: color, fillOpacity: 0.9,
-                color: '#fff', weight: 2, opacity: 0.8,
-                pane: 'markerPane'
-            }).addTo(arrowLayer);
+            // Show label at destination
+            const tipIcon = L.divIcon({
+                html: `<div class="ship-label">${label}</div>`,
+                iconSize: [160, 24], iconAnchor: [80, -6],
+                className: 'ship-label-wrapper'
+            });
+            const tip = L.marker(evt.to, { icon: tipIcon, pane: 'markerPane', zIndexOffset: 1001 }).addTo(shipLayer);
             
-            // Add label
-            const label = currentLang === 'zh' ? evt.labelZh : evt.label;
-            marker.bindTooltip(label, {
-                permanent: true, direction: 'top', offset: [0, -8],
-                className: 'migration-tooltip'
-            }).openTooltip();
-            
-            // Fade out after 5 seconds
+            // Fade out after 4s
             setTimeout(() => {
-                arrowLayer.removeLayer(line);
-                arrowLayer.removeLayer(marker);
-            }, 5000);
+                shipLayer.removeLayer(trail);
+                shipLayer.removeLayer(ship);
+                shipLayer.removeLayer(tip);
+            }, 4000);
             return;
         }
-        drawn.push(points[step]);
-        line.setLatLngs(drawn);
-        step += 2; // speed: 2 points per frame
-    }, 40);
+        ship.setLatLng(points[step]);
+        trailPts.push(points[step]);
+        trail.setLatLngs(trailPts);
+        step++;
+    }, 35);
     
-    // Source pulse
-    const pulse = L.circleMarker(evt.from, {
-        radius: 6, fillColor: color, fillOpacity: 0.7,
-        color: color, weight: 2, opacity: 0.5,
-        pane: 'markerPane'
-    }).addTo(arrowLayer);
-    setTimeout(() => arrowLayer.removeLayer(pulse), 2000);
-    
-    activeArrows.push({ line, interval });
+    activeShips.push({ interval });
 }
 
-function clearArrows() {
-    activeArrows.forEach(a => {
-        if (a.interval) clearInterval(a.interval);
-    });
-    arrowLayer.clearLayers();
-    activeArrows = [];
+function clearShips() {
+    activeShips.forEach(a => { if (a.interval) clearInterval(a.interval); });
+    shipLayer.clearLayers();
+    activeShips = [];
 }
 
 // Track last shown event to avoid repeats
@@ -1155,12 +1149,11 @@ let lastShownMigration = null;
 
 function checkMigrations(year) {
     if (typeof MIGRATION_EVENTS === 'undefined') return;
-    // Find the previous year in timeline to define a range
     const prevYear = currentIndex > 0 ? TIME_PERIODS[currentIndex - 1] : year - 100;
     MIGRATION_EVENTS.forEach(evt => {
         if (evt.year > prevYear && evt.year <= year && lastShownMigration !== evt.year + evt.label) {
             lastShownMigration = evt.year + evt.label;
-            showMigrationArrow(evt);
+            showMigrationShip(evt);
         }
     });
 }
