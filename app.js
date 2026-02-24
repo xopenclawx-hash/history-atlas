@@ -7,15 +7,13 @@ const map = L.map('map', {
     minZoom: 2, maxZoom: 10,
     zoomSnap: 0.5, zoomDelta: 0.5,
     wheelPxPerZoomLevel: 120,
-    maxBounds: [[-90, -200], [90, 200]],
+    maxBounds: [[-90, -220], [90, 220]],
     maxBoundsViscosity: 1.0,
-}).setView([25, 10], 2);
+}).setView([20, 15], 2);
 
+// No labels layer — country names shown via hover/tooltip only (cleaner look)
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; CARTO', maxZoom: 10, subdomains: 'abcd', noWrap: true, bounds: [[-85,-180],[85,180]]
-}).addTo(map);
-L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_only_labels/{z}/{x}/{y}{r}.png', {
-    maxZoom: 10, subdomains: 'abcd', noWrap: true, bounds: [[-85,-180],[85,180]]
 }).addTo(map);
 
 // ===== TIME PERIODS =====
@@ -32,16 +30,18 @@ function yearLabel(y) {
 function getPopColor(pop) {
     if (!pop || pop <= 0) return { color: '#0f172a', opacity: 0.03 };
     const logP = Math.log10(Math.max(1, pop));
-    // 0 -> ~10B: log range 0 to ~10
-    const t = Math.min(1, Math.max(0, (logP - 3) / 7)); // 1K to 10B
+    // Better spread: 100 people to 1.5B
+    const t = Math.min(1, Math.max(0, (logP - 2) / 7.2));
     
     const stops = [
-        [0.0, [12, 45, 72]],     // dark navy
-        [0.2, [14, 77, 110]],    // dark teal
-        [0.4, [26, 122, 138]],   // teal
-        [0.6, [45, 168, 154]],   // green-teal
-        [0.8, [78, 205, 196]],   // bright teal
-        [1.0, [126, 232, 199]],  // light mint
+        [0.0, [15, 32, 55]],     // very dark navy
+        [0.15, [12, 60, 90]],    // dark blue
+        [0.3, [10, 95, 130]],    // medium blue
+        [0.45, [20, 135, 155]],  // teal
+        [0.6, [35, 170, 160]],   // green-teal
+        [0.75, [65, 200, 185]],  // bright teal
+        [0.9, [100, 225, 200]],  // mint
+        [1.0, [140, 245, 215]],  // bright mint
     ];
     
     let r = 12, g = 45, b = 72;
@@ -195,6 +195,9 @@ fetch('countries.geojson?v=13')
         geoLayer = L.geoJSON(data, {
             style: getDefaultStyle,
             onEachFeature: function(feature, layer) {
+                layer.bindTooltip(feature.properties.NAME || '', {
+                    className: 'country-tooltip', sticky: true, direction: 'top', offset: [0, -10],
+                });
                 layer.on({
                     mouseover: function(e) {
                         const iso = feature.properties.ISO_A3;
