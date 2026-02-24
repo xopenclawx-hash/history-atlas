@@ -268,23 +268,39 @@ function formatPop(n) {
     return n.toString();
 }
 
-// Population density -> color (cyan scale, dark to bright)
+// Population density -> color
+// Vivid cyan-to-magenta ramp with strong contrast
 function getPopColor(density) {
-    // density = people per sq km (approx)
-    // Scale: 0 -> dark/transparent, high -> bright cyan/purple
-    if (density <= 0) return { color: '#0e1525', opacity: 0.05 };
+    if (density <= 0) return { color: '#0a0e17', opacity: 0.03 };
     
-    // Log scale for better visual distribution
-    const logD = Math.log10(Math.max(1, density));
-    // logD ranges: 0 (1/km2) to ~3.5 (3000/km2)
-    const t = Math.min(1, logD / 3.2); // normalize to 0-1
+    // Log scale: 1/km2 -> ~3000/km2
+    const logD = Math.log10(Math.max(0.5, density));
+    const t = Math.min(1, Math.max(0, (logD + 0.3) / 3.5));
     
-    // Color ramp: dark blue -> cyan -> purple/magenta for very dense
-    const r = Math.round(30 + t * 150 + (t > 0.7 ? (t - 0.7) * 300 : 0));
-    const g = Math.round(20 + t * 180 - (t > 0.8 ? (t - 0.8) * 200 : 0));
-    const b = Math.round(40 + t * 210);
+    // 5-stop color ramp
+    const stops = [
+        [0.0, [10, 30, 60]],    // near-black navy
+        [0.2, [15, 80, 120]],   // dark teal
+        [0.4, [30, 160, 200]],  // bright cyan
+        [0.7, [120, 100, 240]], // blue-purple
+        [1.0, [200, 80, 220]],  // magenta
+    ];
+    
+    // Interpolate between stops
+    let r, g, b;
+    for (let i = 0; i < stops.length - 1; i++) {
+        if (t >= stops[i][0] && t <= stops[i+1][0]) {
+            const localT = (t - stops[i][0]) / (stops[i+1][0] - stops[i][0]);
+            r = Math.round(stops[i][1][0] + localT * (stops[i+1][1][0] - stops[i][1][0]));
+            g = Math.round(stops[i][1][1] + localT * (stops[i+1][1][1] - stops[i][1][1]));
+            b = Math.round(stops[i][1][2] + localT * (stops[i+1][1][2] - stops[i][1][2]));
+            break;
+        }
+    }
+    if (r === undefined) { r = 200; g = 80; b = 220; }
+    
     const hex = '#' + [r,g,b].map(v => Math.min(255,v).toString(16).padStart(2,'0')).join('');
-    const opacity = 0.15 + t * 0.65;
+    const opacity = 0.25 + t * 0.6;
     
     return { color: hex, opacity };
 }
