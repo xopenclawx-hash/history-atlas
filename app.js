@@ -321,6 +321,7 @@ function updateMap(index) {
     
     // World total
     const total = Object.values(currentPopData).reduce((s, v) => s + v, 0);
+    document.getElementById('worldLabel').textContent = t('world');
     document.getElementById('worldTotal').textContent = '~' + formatPopShort(total);
     
     // Apply choropleth
@@ -354,7 +355,7 @@ let statsVisible = true;
 statsToggleBtn.addEventListener('click', () => {
     statsVisible = !statsVisible;
     statsPanel.classList.toggle('hidden', !statsVisible);
-    statsToggleBtn.textContent = statsVisible ? 'HIDE' : 'SHOW';
+    statsToggleBtn.textContent = statsVisible ? t('hide') : t('show');
 });
 
 // ===== TIMELINE =====
@@ -462,7 +463,7 @@ function applyLanguage() {
     const ds = document.querySelector('.data-source');
     if (ds) ds.childNodes[0].textContent = t('dataSource') + ' ';
     // Update stats header
-    document.querySelector('.stats-header span').textContent = t('world');
+    document.getElementById('worldLabel').textContent = t('world');
     // Update stats toggle
     statsToggleBtn.textContent = statsVisible ? t('hide') : t('show');
     // Update logo
@@ -494,6 +495,9 @@ document.getElementById('langToggle').textContent = t('langLabel');
 document.getElementById('searchInput').placeholder = t('search');
 document.querySelector('.map-disclaimer').textContent = t('disclaimer');
 document.querySelector('.logo').innerHTML = t('title') + ' <span>' + t('titleBold') + '</span>';
+document.getElementById('worldLabel').textContent = t('world');
+document.getElementById('statsToggleBtn').textContent = t('hide');
+buildLegend();
 
 // Data source toggle
 document.getElementById('dataSourceToggle').addEventListener('click', (e) => {
