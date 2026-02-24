@@ -886,6 +886,13 @@ let compareMode = false;
 let vsSlot = 0; // 0=selecting left, 1=selecting right
 let vsCountries = [null, null]; // [left, right] ISO codes
 
+// Move VS button into Leaflet zoom control bar
+(function() {
+    const btn = document.getElementById('compareBtn');
+    const zoomBar = document.querySelector('.leaflet-control-zoom');
+    if (btn && zoomBar) { zoomBar.appendChild(btn); }
+})();
+
 document.getElementById('compareBtn').addEventListener('click', () => {
     compareMode = !compareMode;
     document.getElementById('compareBtn').classList.toggle('active', compareMode);
