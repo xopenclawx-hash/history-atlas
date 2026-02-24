@@ -3,19 +3,19 @@
 // ===== MAP INIT =====
 const map = L.map('map', {
     zoomControl: true, attributionControl: true,
-    worldCopyJump: true,
+    worldCopyJump: false,
     minZoom: 2, maxZoom: 10,
     zoomSnap: 0.5, zoomDelta: 0.5,
     wheelPxPerZoomLevel: 120,
-    maxBounds: [[-85, -Infinity], [85, Infinity]],
-    maxBoundsViscosity: 0.8,
-}).setView([25, 20], 3);
+    maxBounds: [[-85, -180], [85, 180]],
+    maxBoundsViscosity: 1.0,  // hard stop, no bounce
+}).setView([30, 20], 2.5);
 
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; CARTO', maxZoom: 10, subdomains: 'abcd', noWrap: false
+    attribution: '&copy; CARTO', maxZoom: 10, subdomains: 'abcd', noWrap: true, bounds: [[-85,-180],[85,180]]
 }).addTo(map);
 L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_only_labels/{z}/{x}/{y}{r}.png', {
-    maxZoom: 10, subdomains: 'abcd', noWrap: false
+    maxZoom: 10, subdomains: 'abcd', noWrap: true, bounds: [[-85,-180],[85,180]]
 }).addTo(map);
 
 // ===== TIME PERIODS =====
