@@ -278,11 +278,14 @@ function getDotColor(ratio) {
     return '#22d3ee';
 }
 
+// Spread: tighter clusters for big cities, wider for small settlements
+// But NEVER too wide — avoid dots in the ocean
 function getSpread(pop) {
-    if (pop > 10e6) return 1.0;
-    if (pop > 1e6) return 1.5;
-    if (pop > 100000) return 2.0;
-    return 2.5;
+    if (pop > 50e6) return 0.6;
+    if (pop > 10e6) return 0.5;
+    if (pop > 1e6) return 0.4;
+    if (pop > 100000) return 0.3;
+    return 0.2;
 }
 
 function generateDots(center, numDots, seed) {
@@ -293,21 +296,23 @@ function generateDots(center, numDots, seed) {
         const r1 = seededRandom(s);
         const r2 = seededRandom(s + 1000);
         const angle = r1 * Math.PI * 2;
-        const dist = Math.sqrt(-2 * Math.log(Math.max(0.001, r2))) * spread * 0.4;
+        const dist = Math.sqrt(-2 * Math.log(Math.max(0.001, r2))) * spread * 0.35;
         dots.push([
             center.lat + Math.cos(angle) * dist,
-            center.lng + Math.sin(angle) * dist * 1.3
+            center.lng + Math.sin(angle) * dist * 1.2
         ]);
     }
     return dots;
 }
 
+// More dots = more visible. Scale so even small countries get dots.
 function getDotsPerPerson(totalPop) {
-    if (totalPop < 50e6) return 20000;
-    if (totalPop < 500e6) return 100000;
-    if (totalPop < 2e9) return 500000;
-    if (totalPop < 5e9) return 2000000;
-    return 4000000;
+    if (totalPop < 20e6) return 5000;
+    if (totalPop < 100e6) return 20000;
+    if (totalPop < 500e6) return 50000;
+    if (totalPop < 2e9) return 200000;
+    if (totalPop < 4e9) return 500000;
+    return 1000000;
 }
 
 function updateMap(index) {
@@ -351,10 +356,12 @@ function updateMap(index) {
         const color = getDotColor(ratio);
         const numDots = Math.max(1, Math.round(c.pop / popPerDot));
         const dots = generateDots(c, numDots, seed);
+        const zoom = map.getZoom();
+        const dotRadius = zoom < 3 ? 1.5 : zoom < 5 ? 2 : 2.5;
         dots.forEach(([lat, lng]) => {
             const dot = L.circleMarker([lat, lng], {
-                radius: 2, fillColor: color, color: color,
-                weight: 0, fillOpacity: 0.65, interactive: false,
+                radius: dotRadius, fillColor: color, color: color,
+                weight: 0, fillOpacity: 0.6, interactive: false,
             });
             dot.addTo(map);
             dotMarkers.push(dot);
