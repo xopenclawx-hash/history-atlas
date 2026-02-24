@@ -672,6 +672,9 @@ document.querySelector('.map-disclaimer').textContent = t('disclaimer');
 document.querySelector('.logo').innerHTML = t('title') + ' <span>' + t('titleBold') + '</span>';
 document.getElementById('worldLabel').textContent = t('world');
 document.getElementById('statsToggleBtn').textContent = t('hide');
+document.getElementById('tabPop').textContent = t('tabPop');
+document.getElementById('tabGdp').textContent = t('tabGdp');
+document.getElementById('tabNpi').textContent = t('tabNpi');
 buildLegend();
 
 // Data source toggle
