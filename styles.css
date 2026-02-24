@@ -37,6 +37,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .stats-tab:hover { color: #94a3b8; }
 .stats-tab.active { color: #38bdf8; border-bottom-color: #38bdf8; }
 .stats-tab.active[data-layer="gdp"] { color: #fbbf24; border-bottom-color: #fbbf24; }
+.stats-tab.active[data-layer="npi"] { color: #ef4444; border-bottom-color: #ef4444; }
 .stats-header { padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 11px; letter-spacing: 1.5px; color: #64748b; }
 .stats-total { font-size: 18px; font-weight: 600; color: #38bdf8; letter-spacing: 0; }
 .stats-body { flex: 1; overflow-y: auto; padding: 8px 0; scrollbar-width: thin; scrollbar-color: #1e293b transparent; }

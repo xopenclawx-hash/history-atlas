@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>History Atlas</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=48"/>
+    <link rel="stylesheet" href="styles.css?v=49"/>
 </head>
 <body>
     <!-- Header -->
@@ -42,6 +42,7 @@
         <div class="stats-tabs">
             <button class="stats-tab active" data-layer="pop" id="tabPop">Population</button>
             <button class="stats-tab" data-layer="gdp" id="tabGdp">GDP</button>
+            <button class="stats-tab" data-layer="npi" id="tabNpi">Power</button>
         </div>
         <div class="stats-header">
             <span id="worldLabel">WORLD</span>
@@ -79,9 +80,10 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="owid-data.js?v=48"></script>
-    <script src="owid-gdp.js?v=48"></script>
-    <script src="i18n.js?v=48"></script>
-    <script src="app.js?v=48"></script>
+    <script src="owid-data.js?v=49"></script>
+    <script src="owid-gdp.js?v=49"></script>
+    <script src="owid-npi.js?v=49"></script>
+    <script src="i18n.js?v=49"></script>
+    <script src="app.js?v=49"></script>
 </body>
 </html>
