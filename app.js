@@ -331,7 +331,7 @@ function showTooltip(e, layer) {
     document.getElementById('tooltipYear').textContent = yearLabel(year);
     if (activeLayer === 'npi') {
         const npi = currentNpiData[iso] || 0;
-        document.getElementById('tooltipLabel').textContent = currentLang === 'zh' ? '综合国力' : 'National Power';
+        document.getElementById('tooltipLabel').textContent = currentLang === 'zh' ? '综合实力' : 'National Strength';
         document.getElementById('tooltipPop').textContent = npi > 0 ? formatNpi(npi) : t('noData');
         document.getElementById('tooltipPop').style.color = npi > 0 ? '#ef4444' : '#9ca3af';
         drawSparkline(iso, year, 'npi');
