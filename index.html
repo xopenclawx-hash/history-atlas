@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>History Atlas</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=70"/>
+    <link rel="stylesheet" href="styles.css?v=71"/>
 </head>
 <body>
     <!-- Header -->
@@ -56,14 +56,33 @@
     <!-- Color legend — discrete bins -->
     <div class="color-legend" id="colorLegend"></div>
 
-    <!-- Compare panel -->
+    <!-- VS Battle panel -->
     <div class="compare-panel" id="comparePanel" style="display:none;">
         <div class="compare-header">
-            <span id="compareTitle">Country Comparison</span>
+            <span id="compareTitle">HEAD TO HEAD</span>
             <button class="compare-close" id="compareClose">&times;</button>
         </div>
-        <div class="compare-body">
-            <canvas id="compareChart" width="460" height="260"></canvas>
+        <div class="vs-arena">
+            <div class="vs-side left" id="vsLeft">
+                <div class="vs-empty" id="vsLeftHint">Click a country</div>
+                <div class="vs-country" id="vsLeftName" style="display:none"></div>
+                <div class="vs-value" id="vsLeftVal" style="display:none;font-size:12px;color:#64748b;margin-top:2px;"></div>
+            </div>
+            <div class="vs-divider"><span>VS</span></div>
+            <div class="vs-side right" id="vsRight">
+                <div class="vs-empty" id="vsRightHint">Click a country</div>
+                <div class="vs-country" id="vsRightName" style="display:none"></div>
+                <div class="vs-value" id="vsRightVal" style="display:none;font-size:12px;color:#64748b;margin-top:2px;"></div>
+            </div>
+        </div>
+        <div class="vs-stats" id="vsStats"></div>
+        <div class="vs-score" id="vsScore" style="display:none;">
+            <span class="vs-score-num left" id="vsScoreLeft">0</span>
+            <span class="vs-score-sep">:</span>
+            <span class="vs-score-num right" id="vsScoreRight">0</span>
+        </div>
+        <div class="compare-body" id="compareChartWrap" style="display:none;">
+            <canvas id="compareChart" width="484" height="160"></canvas>
         </div>
         <div class="compare-hint" id="compareHint"></div>
     </div>
@@ -104,12 +123,12 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="owid-data.js?v=70"></script>
-    <script src="owid-gdp.js?v=70"></script>
-    <script src="owid-npi.js?v=70"></script>
-    <script src="events.js?v=70"></script>
-    <script src="migrations.js?v=70"></script>
-    <script src="i18n.js?v=70"></script>
-    <script src="app.js?v=70"></script>
+    <script src="owid-data.js?v=71"></script>
+    <script src="owid-gdp.js?v=71"></script>
+    <script src="owid-npi.js?v=71"></script>
+    <script src="events.js?v=71"></script>
+    <script src="migrations.js?v=71"></script>
+    <script src="i18n.js?v=71"></script>
+    <script src="app.js?v=71"></script>
 </body>
 </html>

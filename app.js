@@ -655,8 +655,8 @@ playBtn.addEventListener('click', () => {
                 currentIndex++;
                 slider.value = (currentIndex / (TIME_PERIODS.length - 1)) * 1000;
                 updateMap(currentIndex);
-                // Update compare chart during playback
-                if (compareMode && compareCountries.length > 0) drawCompareChart();
+                // Update VS panel during playback
+                if (compareMode && vsCountries[0] && vsCountries[1]) updateVsPanel();
             } else {
                 clearInterval(autoPlay);
                 autoPlay = null;
@@ -881,140 +881,182 @@ if (tabGdppc) {
     tabGdppc.textContent = currentLang === 'zh' ? '人均' : 'Per Capita';
 }
 
-// ===== COUNTRY COMPARISON MODE =====
+// ===== VS BATTLE MODE =====
 let compareMode = false;
-let compareCountries = []; // [{iso, name, color}]
-const COMPARE_COLORS = ['#38bdf8', '#fbbf24', '#ef4444', '#10b981', '#a78bfa'];
+let vsSlot = 0; // 0=selecting left, 1=selecting right
+let vsCountries = [null, null]; // [left, right] ISO codes
 
 document.getElementById('compareBtn').addEventListener('click', () => {
     compareMode = !compareMode;
     document.getElementById('compareBtn').classList.toggle('active', compareMode);
     if (!compareMode) {
         document.getElementById('comparePanel').style.display = 'none';
-        compareCountries = [];
+        vsCountries = [null, null]; vsSlot = 0;
     } else {
-        document.getElementById('compareHint').textContent = currentLang === 'zh' 
-            ? '点击地图上的国家添加对比（最多 5 个）' 
-            : 'Click countries on map to compare (max 5)';
+        resetVsPanel();
         document.getElementById('comparePanel').style.display = 'block';
     }
 });
 
 document.getElementById('compareClose').addEventListener('click', () => {
     compareMode = false;
-    compareCountries = [];
+    vsCountries = [null, null]; vsSlot = 0;
     document.getElementById('compareBtn').classList.remove('active');
     document.getElementById('comparePanel').style.display = 'none';
 });
 
-function addCompareCountry(iso) {
-    if (!compareMode) return;
-    // Toggle off if already selected
-    const idx = compareCountries.findIndex(c => c.iso === iso);
-    if (idx >= 0) { compareCountries.splice(idx, 1); }
-    else if (compareCountries.length < 5) {
-        compareCountries.push({ iso, name: getLocalName(iso), color: COMPARE_COLORS[compareCountries.length] });
-    }
-    drawCompareChart();
+function resetVsPanel() {
+    vsCountries = [null, null]; vsSlot = 0;
+    document.getElementById('vsLeftName').style.display = 'none';
+    document.getElementById('vsLeftVal').style.display = 'none';
+    document.getElementById('vsLeftHint').style.display = '';
+    document.getElementById('vsLeftHint').textContent = currentLang === 'zh' ? '点击选择国家' : 'Click a country';
+    document.getElementById('vsRightName').style.display = 'none';
+    document.getElementById('vsRightVal').style.display = 'none';
+    document.getElementById('vsRightHint').style.display = '';
+    document.getElementById('vsRightHint').textContent = currentLang === 'zh' ? '点击选择国家' : 'Click a country';
+    document.getElementById('vsStats').innerHTML = '';
+    document.getElementById('vsScore').style.display = 'none';
+    document.getElementById('compareChartWrap').style.display = 'none';
+    document.getElementById('compareHint').textContent = currentLang === 'zh' 
+        ? '点击地图选择两个国家进行对比' : 'Click two countries on the map to compare';
 }
 
-function drawCompareChart() {
+function addCompareCountry(iso) {
+    if (!compareMode) return;
+    
+    // If clicking same country, deselect
+    if (vsCountries[0] === iso) { resetVsPanel(); return; }
+    if (vsCountries[1] === iso) { vsCountries[1] = null; vsSlot = 1; updateVsPanel(); return; }
+    
+    vsCountries[vsSlot] = iso;
+    vsSlot = vsSlot === 0 ? 1 : 0;
+    updateVsPanel();
+}
+
+function updateVsPanel() {
+    const year = TIME_PERIODS[currentIndex];
+    const ys = String(year);
+    
+    // Update left side
+    if (vsCountries[0]) {
+        const name = getLocalName(vsCountries[0]);
+        document.getElementById('vsLeftName').textContent = name;
+        document.getElementById('vsLeftName').style.display = '';
+        document.getElementById('vsLeftHint').style.display = 'none';
+    }
+    
+    // Update right side  
+    if (vsCountries[1]) {
+        const name = getLocalName(vsCountries[1]);
+        document.getElementById('vsRightName').textContent = name;
+        document.getElementById('vsRightName').style.display = '';
+        document.getElementById('vsRightHint').style.display = 'none';
+    }
+    
+    // If both selected, show battle stats
+    if (vsCountries[0] && vsCountries[1]) {
+        document.getElementById('compareHint').textContent = yearLabel(year);
+        showVsBattle(vsCountries[0], vsCountries[1], ys);
+    }
+}
+
+function showVsBattle(isoL, isoR, ys) {
+    const metrics = [
+        { key: 'pop', label: 'Population', labelZh: '人口', data: currentPopData, fmt: formatPopShort },
+        { key: 'gdp', label: 'GDP', labelZh: 'GDP', data: currentGdpData, fmt: formatGdpShort },
+        { key: 'npi', label: 'Strength', labelZh: '综合实力', data: currentNpiData, fmt: formatNpiShort },
+    ];
+    
+    let scoreL = 0, scoreR = 0;
+    let html = '';
+    
+    metrics.forEach(m => {
+        const valL = m.data[isoL] || 0;
+        const valR = m.data[isoR] || 0;
+        const total = valL + valR || 1;
+        const pctL = Math.max(5, (valL / total) * 100);
+        const pctR = Math.max(5, (valR / total) * 100);
+        const winL = valL > valR;
+        const winR = valR > valL;
+        if (winL) scoreL++;
+        if (winR) scoreR++;
+        
+        const label = currentLang === 'zh' ? m.labelZh : m.label;
+        html += `<div class="vs-stat-row">
+            <div class="vs-bar-container">
+                <div class="vs-bar-left ${winL?'winner':''}" style="width:${pctL}%">${valL > 0 ? m.fmt(valL) : '-'}</div>
+                <div class="vs-bar-right ${winR?'winner':''}" style="width:${pctR}%">${valR > 0 ? m.fmt(valR) : '-'}</div>
+            </div>
+        </div>
+        <div style="text-align:center;font-size:9px;color:#475569;margin:-4px 0 6px;letter-spacing:0.5px;">${label}</div>`;
+    });
+    
+    document.getElementById('vsStats').innerHTML = html;
+    document.getElementById('vsScore').style.display = 'flex';
+    document.getElementById('vsScoreLeft').textContent = scoreL;
+    document.getElementById('vsScoreRight').textContent = scoreR;
+    
+    // Show mini chart
+    document.getElementById('compareChartWrap').style.display = 'block';
+    drawVsChart(isoL, isoR);
+}
+
+function drawVsChart(isoL, isoR) {
     const canvas = document.getElementById('compareChart');
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
-    const w = 460, h = 260;
+    const w = 484, h = 160;
     canvas.width = w * dpr; canvas.height = h * dpr;
     canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, w, h);
     
-    if (compareCountries.length === 0) {
-        ctx.fillStyle = '#475569'; ctx.font = '13px -apple-system, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(currentLang === 'zh' ? '点击地图上的国家' : 'Click countries on the map', w/2, h/2);
-        return;
-    }
-    
-    // Get timeseries based on active layer
-    const tsMap = { pop: COUNTRY_TIMESERIES, gdp: typeof GDP_TIMESERIES !== 'undefined' ? GDP_TIMESERIES : {}, 
-        npi: typeof NPI_TIMESERIES !== 'undefined' ? NPI_TIMESERIES : {}, 
-        gdppc: typeof GDPPC_TIMESERIES !== 'undefined' ? GDPPC_TIMESERIES : {} };
+    const tsMap = { pop: COUNTRY_TIMESERIES, gdp: typeof GDP_TIMESERIES !== 'undefined' ? GDP_TIMESERIES : {}, npi: typeof NPI_TIMESERIES !== 'undefined' ? NPI_TIMESERIES : {} };
     const tsSource = tsMap[activeLayer] || tsMap.pop;
+    const tsL = tsSource[isoL] || [], tsR = tsSource[isoR] || [];
+    if (tsL.length < 2 && tsR.length < 2) return;
     
-    const left = 50, right = w - 10, top = 10, bottom = h - 30;
-    const chartW = right - left, chartH = bottom - top;
-    
-    // Find global min/max across all selected countries
-    let allYears = [], allVals = [];
-    compareCountries.forEach(c => {
-        const ts = tsSource[c.iso] || [];
-        ts.forEach(d => { allYears.push(d[0]); allVals.push(d[1]); });
-    });
-    if (allYears.length === 0) return;
-    
+    const allYears = [...tsL.map(d=>d[0]), ...tsR.map(d=>d[0])];
+    const allVals = [...tsL.map(d=>d[1]), ...tsR.map(d=>d[1])];
     const minY = Math.min(...allYears), maxY = Math.max(...allYears);
     const maxV = Math.max(...allVals);
-    const yearRange = maxY - minY || 1;
+    const left = 45, right = w - 10, top = 8, bottom = h - 20;
+    const chartW = right - left, chartH = bottom - top;
     
-    function xPos(year) { return left + ((year - minY) / yearRange) * chartW; }
+    function xPos(year) { return left + ((year - minY) / (maxY - minY || 1)) * chartW; }
     function yPos(val) { return bottom - (val / maxV) * chartH; }
     
-    // Grid lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 0.5;
-    for (let i = 0; i <= 4; i++) {
-        const y = top + (chartH / 4) * i;
-        ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
-    }
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 3; i++) { const y = top + (chartH/3)*i; ctx.beginPath(); ctx.moveTo(left,y); ctx.lineTo(right,y); ctx.stroke(); }
     
-    // Draw lines
-    compareCountries.forEach(c => {
-        const ts = tsSource[c.iso] || [];
+    // Lines
+    [{ts:tsL, color:'#38bdf8'}, {ts:tsR, color:'#ef4444'}].forEach(({ts, color}) => {
         if (ts.length < 2) return;
-        ctx.beginPath(); ctx.strokeStyle = c.color; ctx.lineWidth = 2;
-        ts.forEach((d, i) => { 
-            const x = xPos(d[0]), y = yPos(d[1]);
-            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        });
+        ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 2;
+        ts.forEach((d,i) => { const x = xPos(d[0]), y = yPos(d[1]); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
         ctx.stroke();
-        
-        // Label at end
-        const last = ts[ts.length - 1];
-        ctx.fillStyle = c.color; ctx.font = 'bold 10px -apple-system, sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText(c.name, xPos(last[0]) + 4, yPos(last[1]) + 3);
     });
     
     // Current year marker
     const curYear = TIME_PERIODS[currentIndex];
     if (curYear >= minY && curYear <= maxY) {
         const cx = xPos(curYear);
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
-        ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(cx, top); ctx.lineTo(cx, bottom); ctx.stroke(); ctx.setLineDash([]);
-        ctx.fillStyle = '#94a3b8'; ctx.font = '9px -apple-system, sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText(yearLabel(curYear), cx, bottom + 12);
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
+        ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(cx,top); ctx.lineTo(cx,bottom); ctx.stroke(); ctx.setLineDash([]);
     }
     
-    // Y axis labels
-    ctx.fillStyle = '#64748b'; ctx.font = '9px -apple-system, sans-serif'; ctx.textAlign = 'right';
-    const fmtMap = { pop: formatPopShort, gdp: formatGdpShort, npi: formatNpiShort, gdppc: formatGdppcShort };
+    // Axis
+    ctx.fillStyle = '#475569'; ctx.font = '8px -apple-system, sans-serif';
+    ctx.textAlign = 'left'; ctx.fillText(yearLabel(minY), left, h - 4);
+    ctx.textAlign = 'right'; ctx.fillText(yearLabel(maxY), right, h - 4);
+    
+    const fmtMap = { pop: formatPopShort, gdp: formatGdpShort, npi: formatNpiShort };
     const fmt = fmtMap[activeLayer] || formatPopShort;
-    for (let i = 0; i <= 4; i++) {
-        const val = maxV * (1 - i/4);
-        ctx.fillText(fmt(val), left - 4, top + (chartH/4)*i + 3);
-    }
-    
-    // X axis
-    ctx.fillStyle = '#64748b'; ctx.textAlign = 'left';
-    ctx.fillText(yearLabel(minY), left, bottom + 12);
     ctx.textAlign = 'right';
-    ctx.fillText(yearLabel(maxY), right, bottom + 12);
-    
-    // Update title
-    const layerNames = { pop: 'Population', gdp: 'GDP', npi: 'Strength', gdppc: 'Per Capita' };
-    const layerNamesZh = { pop: '人口', gdp: 'GDP', npi: '综合实力', gdppc: '人均GDP' };
-    document.getElementById('compareTitle').textContent = 
-        (currentLang === 'zh' ? layerNamesZh[activeLayer] : layerNames[activeLayer]) + 
-        ' — ' + compareCountries.map(c => c.name).join(' vs ');
+    ctx.fillText(fmt(maxV), left - 3, top + 4);
+    ctx.fillText('0', left - 3, bottom);
 }
 
 // ===== SMOOTH PLAYBACK =====
