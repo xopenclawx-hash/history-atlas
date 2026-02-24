@@ -4,19 +4,21 @@ const map = L.map('map', {
     attributionControl: true,
     worldCopyJump: true,
     minZoom: 2,
-    maxZoom: 8,
+    maxZoom: 10,
     zoomSnap: 0.5,
     zoomDelta: 0.5,
     wheelPxPerZoomLevel: 120,
+    maxBounds: [[-85, -Infinity], [85, Infinity]],  // limit vertical only (no past poles)
+    maxBoundsViscosity: 0.8,  // smooth bounce at vertical edges
 }).setView([25, 20], 3);
 
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; CARTO',
-    maxZoom: 8, minZoom: 2, subdomains: 'abcd'
+    maxZoom: 10, minZoom: 2, subdomains: 'abcd', noWrap: false
 }).addTo(map);
 
 L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_only_labels/{z}/{x}/{y}{r}.png', {
-    maxZoom: 8, minZoom: 2, subdomains: 'abcd'
+    maxZoom: 10, minZoom: 2, subdomains: 'abcd', noWrap: false
 }).addTo(map);
 
 // ===== DATA: Build timeline from POPULATION_CENTERS =====
