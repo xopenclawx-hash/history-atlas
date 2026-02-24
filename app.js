@@ -469,5 +469,22 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// ===== DATA SOURCE POPUP =====
+document.getElementById('dataSourceToggle').addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('dataSourceDetail').classList.toggle('open');
+});
+document.addEventListener('click', () => {
+    document.getElementById('dataSourceDetail').classList.remove('open');
+});
+
+// ===== BUTTON FEEDBACK =====
+// Add active states to interactive elements
+document.querySelectorAll('.layer-tab, .stats-show-btn, .info-close, .stats-toggle').forEach(btn => {
+    btn.addEventListener('mousedown', () => btn.style.opacity = '0.6');
+    btn.addEventListener('mouseup', () => btn.style.opacity = '1');
+    btn.addEventListener('mouseleave', () => btn.style.opacity = '1');
+});
+
 // ===== INIT =====
 updateMap(0);
