@@ -278,14 +278,21 @@ function getDotColor(ratio) {
     return '#22d3ee';
 }
 
-// Spread: tighter clusters for big cities, wider for small settlements
-// But NEVER too wide — avoid dots in the ocean
+// Spread scales with population: large population = large area covered
+// A center with 100M covers a huge region; a center with 100K is a small city
 function getSpread(pop) {
-    if (pop > 50e6) return 0.6;
-    if (pop > 10e6) return 0.5;
-    if (pop > 1e6) return 0.4;
-    if (pop > 100000) return 0.3;
-    return 0.2;
+    // Roughly: spread in degrees ≈ how far dots scatter from center
+    // 1 degree ≈ 111km
+    if (pop > 100e6) return 4.0;   // ~440km radius — covers a large province/region
+    if (pop > 50e6) return 3.5;    // ~390km
+    if (pop > 20e6) return 3.0;    // ~330km
+    if (pop > 10e6) return 2.5;    // ~280km
+    if (pop > 5e6) return 2.0;     // ~220km
+    if (pop > 1e6) return 1.5;     // ~170km
+    if (pop > 500000) return 1.2;  // ~130km
+    if (pop > 100000) return 0.8;  // ~90km
+    if (pop > 10000) return 0.5;   // ~55km
+    return 0.3;                     // small settlement
 }
 
 function generateDots(center, numDots, seed) {
@@ -296,10 +303,14 @@ function generateDots(center, numDots, seed) {
         const r1 = seededRandom(s);
         const r2 = seededRandom(s + 1000);
         const angle = r1 * Math.PI * 2;
-        const dist = Math.sqrt(-2 * Math.log(Math.max(0.001, r2))) * spread * 0.35;
+        // Gaussian distribution — most dots near center, some spread far
+        const dist = Math.sqrt(-2 * Math.log(Math.max(0.001, r2))) * spread * 0.4;
+        // Adjust longitude spread by latitude (degrees get narrower near poles)
+        const latFactor = Math.cos(center.lat * Math.PI / 180);
+        const lngMult = latFactor > 0.1 ? 1 / latFactor : 1;
         dots.push([
             center.lat + Math.cos(angle) * dist,
-            center.lng + Math.sin(angle) * dist * 1.2
+            center.lng + Math.sin(angle) * dist * Math.min(lngMult, 2.5)
         ]);
     }
     return dots;
