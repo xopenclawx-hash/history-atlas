@@ -367,13 +367,12 @@ from shapely.ops import unary_union
 _land = unary_union(_land_polys)
 print(f"Land polygons loaded: {len(_land_polys)} countries")
 
+_land_buffered = _land.buffer(0.15)  # ~16km buffer for GeoJSON resolution
+print("Land buffer computed")
+
 def is_on_land(lat, lng):
-    """Check if a point is near land (within ~50km of any country polygon)."""
-    pt = Point(lng, lat)
-    if _land.contains(pt):
-        return True
-    # Allow points within ~0.5 degrees of land (for low-res GeoJSON)
-    return _land.distance(pt) < 0.5
+    """Check if a point is on land (with small buffer for GeoJSON resolution)."""
+    return _land_buffered.contains(Point(lng, lat))
 
 def subdivide_center(lat, lng, pop, name, max_per_center=5000000):
     """

@@ -279,16 +279,12 @@ function getDotColor(ratio) {
     return '#22d3ee';
 }
 
-// Spread: now centers are already subdivided, so keep spread moderate
-// Just enough to fill gaps between sub-centers
+// Minimal spread — data already has rural + subdivided centers
 function getSpread(pop) {
-    if (pop > 10e6) return 1.2;
-    if (pop > 5e6) return 1.0;
-    if (pop > 1e6) return 0.7;
-    if (pop > 500000) return 0.5;
-    if (pop > 100000) return 0.4;
-    if (pop > 10000) return 0.3;
-    return 0.2;
+    if (pop > 10e6) return 0.4;
+    if (pop > 1e6) return 0.3;
+    if (pop > 100000) return 0.2;
+    return 0.15;
 }
 
 function generateDots(center, numDots, seed) {
