@@ -69,7 +69,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .play-btn { width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.05); color: #94a3b8; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; margin-right: 12px; flex-shrink: 0; }
 .play-btn:hover { background: rgba(56,189,248,0.15); color: #38bdf8; }
 .play-btn.playing { background: rgba(56,189,248,0.2); color: #38bdf8; }
-.timeline-track { flex: 1; position: relative; }
+.timeline-track { flex: 1; position: relative; padding: 0 4px; }
+.timeline-era-strip { position: absolute; top: 50%; left: 4px; right: 4px; height: 4px; transform: translateY(-50%); z-index: 0; pointer-events: none; border-radius: 2px; overflow: hidden; opacity: 0.4; }
 .timeline-track input[type=range] { width: 100%; -webkit-appearance: none; background: transparent; cursor: pointer; }
 .timeline-track input[type=range]::-webkit-slider-runnable-track { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; }
 .timeline-track input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #38bdf8; margin-top: -6px; box-shadow: 0 0 8px rgba(56,189,248,0.4); }
@@ -116,8 +117,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .event-desc { font-size: 11px; color: #94a3b8; margin-top: 2px; }
 @keyframes eventSlideIn { from { opacity: 0; transform: translateX(-50%) translateY(-10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
-/* Timeline event markers */
-.timeline-dot { position: absolute; width: 1px; height: 20px; top: 50%; transform: translate(-50%, -50%); z-index: 2; cursor: pointer; transition: all 0.2s; opacity: 0.35; }
-.timeline-dot:hover { opacity: 1; width: 2px; }
-.timeline-dot-tooltip { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: rgba(15,23,42,0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 4px 8px; font-size: 10px; color: #e2e8f0; white-space: nowrap; display: none; pointer-events: none; margin-bottom: 4px; }
+/* Timeline event markers — subtle notches below track */
+.timeline-dot { position: absolute; width: 2px; height: 8px; bottom: 2px; transform: translateX(-50%); z-index: 2; cursor: pointer; transition: all 0.2s; opacity: 0.25; border-radius: 0 0 1px 1px; }
+.timeline-dot:hover { opacity: 0.8; height: 14px; bottom: -1px; }
+.timeline-dot-tooltip { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: rgba(15,23,42,0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 4px 8px; font-size: 10px; color: #e2e8f0; white-space: nowrap; display: none; pointer-events: none; margin-bottom: 6px; }
 .timeline-dot:hover .timeline-dot-tooltip { display: block; }

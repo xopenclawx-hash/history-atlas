@@ -804,7 +804,6 @@ function buildTimelineDots() {
         dot.className = 'timeline-dot';
         dot.style.left = pct + '%';
         dot.style.backgroundColor = EVENT_COLORS[evt.type] || '#38bdf8';
-        dot.style.boxShadow = '0 0 4px ' + (EVENT_COLORS[evt.type] || '#38bdf8');
         const tip = document.createElement('div');
         tip.className = 'timeline-dot-tooltip';
         tip.textContent = (currentLang === 'zh' ? evt.titleZh : evt.title) + ' (' + yearLabel(evt.year) + ')';
@@ -824,6 +823,44 @@ function buildTimelineDots() {
     });
 }
 buildTimelineDots();
+
+// Paint era color strip on timeline
+function paintEraStrip() {
+    if (typeof HISTORICAL_EVENTS === 'undefined') return;
+    const canvas = document.getElementById('eraStrip');
+    if (!canvas) return;
+    const track = canvas.parentElement;
+    const w = track.clientWidth - 8;
+    const h = 4;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    
+    // Base track color
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(0, 0, w, h);
+    
+    const minYear = TIME_PERIODS[0], maxYear = TIME_PERIODS[TIME_PERIODS.length-1];
+    const range = maxYear - minYear;
+    
+    // Paint event influence zones (gaussian-ish spread around each event)
+    HISTORICAL_EVENTS.forEach(evt => {
+        const cx = ((evt.year - minYear) / range) * w;
+        const color = EVENT_COLORS[evt.type] || '#38bdf8';
+        const spread = w * 0.015; // 1.5% of width
+        const grad = ctx.createRadialGradient(cx, h/2, 0, cx, h/2, spread);
+        grad.addColorStop(0, color);
+        grad.addColorStop(1, 'transparent');
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = grad;
+        ctx.fillRect(cx - spread, 0, spread * 2, h);
+    });
+    ctx.globalAlpha = 1;
+}
+paintEraStrip();
+window.addEventListener('resize', paintEraStrip);
 
 // Hook event detection into updateMap
 const _origUpdateMap = updateMap;
