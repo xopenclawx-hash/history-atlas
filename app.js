@@ -279,30 +279,17 @@ function getDotColor(ratio) {
     return '#22d3ee';
 }
 
-// Minimal spread — data already has rural + subdivided centers
-function getSpread(pop) {
-    if (pop > 10e6) return 0.4;
-    if (pop > 1e6) return 0.3;
-    if (pop > 100000) return 0.2;
-    return 0.15;
-}
-
+// Tiny jitter only — data already has rural + subdivided centers covering territories
 function generateDots(center, numDots, seed) {
     const dots = [];
-    const spread = getSpread(center.pop);
+    const jitter = 0.08; // ~8km — just enough to avoid pixel overlap
     for (let i = 0; i < numDots; i++) {
         const s = seed + i * 7 + (center.name || '').length;
         const r1 = seededRandom(s);
         const r2 = seededRandom(s + 1000);
-        const angle = r1 * Math.PI * 2;
-        // Gaussian distribution — most dots near center, some spread far
-        const dist = Math.sqrt(-2 * Math.log(Math.max(0.001, r2))) * spread * 0.4;
-        // Adjust longitude spread by latitude (degrees get narrower near poles)
-        const latFactor = Math.cos(center.lat * Math.PI / 180);
-        const lngMult = latFactor > 0.1 ? 1 / latFactor : 1;
         dots.push([
-            center.lat + Math.cos(angle) * dist,
-            center.lng + Math.sin(angle) * dist * Math.min(lngMult, 2.5)
+            center.lat + (r1 - 0.5) * jitter,
+            center.lng + (r2 - 0.5) * jitter
         ]);
     }
     return dots;
