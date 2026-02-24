@@ -19,6 +19,7 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png'
 // ===== TIME PERIODS =====
 const TIME_PERIODS = Object.keys(OWID_POP).map(Number).sort((a, b) => a - b);
 let currentIndex = 0;
+let activeLayer = 'pop'; // 'pop' or 'gdp'
 
 // Fix GeoJSON ISO mismatches — some features have ISO_A3="-99"
 const ISO_FIXES = {
@@ -52,6 +53,50 @@ function getPopColor(pop) {
         if (pop <= POP_BINS[i].max) return { color: POP_BINS[i].color, opacity: POP_BINS[i].opacity };
     }
     return { color: POP_BINS[POP_BINS.length-1].color, opacity: POP_BINS[POP_BINS.length-1].opacity };
+}
+
+// GDP bins (in 2015 US$)
+const GDP_BINS = [
+    { max: 0,         color: '#0f172a', opacity: 0.03, label: 'No data', labelZh: '无数据' },
+    { max: 1e8,       color: '#2a1f0a', opacity: 0.25, label: '0',       labelZh: '0' },
+    { max: 1e9,       color: '#3d2f10', opacity: 0.35, label: '$1B',     labelZh: '10亿$' },
+    { max: 1e10,      color: '#554118', opacity: 0.45, label: '$10B',    labelZh: '100亿$' },
+    { max: 1e11,      color: '#6d5520', opacity: 0.55, label: '$100B',   labelZh: '1千亿$' },
+    { max: 5e11,      color: '#876a28', opacity: 0.62, label: '$500B',   labelZh: '5千亿$' },
+    { max: 1e12,      color: '#a48030', opacity: 0.70, label: '$1T',     labelZh: '1万亿$' },
+    { max: 5e12,      color: '#c49838', opacity: 0.78, label: '$5T',     labelZh: '5万亿$' },
+    { max: 1e13,      color: '#e0b040', opacity: 0.83, label: '$10T',    labelZh: '10万亿$' },
+    { max: Infinity,  color: '#fbbf24', opacity: 0.88, label: '>$10T',   labelZh: '>10万亿$' },
+];
+
+function getGdpColor(gdp) {
+    if (!gdp || gdp <= 0) return { color: GDP_BINS[0].color, opacity: GDP_BINS[0].opacity };
+    for (let i = 1; i < GDP_BINS.length; i++) {
+        if (gdp <= GDP_BINS[i].max) return { color: GDP_BINS[i].color, opacity: GDP_BINS[i].opacity };
+    }
+    return { color: GDP_BINS[GDP_BINS.length-1].color, opacity: GDP_BINS[GDP_BINS.length-1].opacity };
+}
+
+function getGdpBinIndex(gdp) {
+    if (!gdp || gdp <= 0) return 0;
+    for (let i = 1; i < GDP_BINS.length; i++) {
+        if (gdp <= GDP_BINS[i].max) return i;
+    }
+    return GDP_BINS.length - 1;
+}
+
+function formatGdp(n) {
+    if (n >= 1e12) return '$' + (n / 1e12).toFixed(2) + ' trillion';
+    if (n >= 1e9) return '$' + (n / 1e9).toFixed(1) + ' billion';
+    if (n >= 1e6) return '$' + (n / 1e6).toFixed(0) + ' million';
+    return '$' + Math.round(n).toLocaleString();
+}
+
+function formatGdpShort(n) {
+    if (n >= 1e12) return '$' + (n / 1e12).toFixed(1) + 'T';
+    if (n >= 1e9) return '$' + (n / 1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return '$' + (n / 1e6).toFixed(0) + 'M';
+    return '$' + Math.round(n).toLocaleString();
 }
 
 function getPopBinIndex(pop) {
@@ -107,25 +152,43 @@ function getDefaultStyle() {
     return { fillColor: '#0f172a', fillOpacity: 0.03, color: '#1e293b', weight: 0.4, opacity: 0.2 };
 }
 
+let currentGdpData = {};  // ISO3 -> gdp for current year
+
 function applyPopStyle(layer) {
     const iso = getISO(layer.feature);
-    const pop = currentPopData[iso] || 0;
-    const { color, opacity } = getPopColor(pop);
+    let color, opacity, hasData;
+    
+    if (activeLayer === 'gdp') {
+        const gdp = currentGdpData[iso] || 0;
+        const result = getGdpColor(gdp);
+        color = result.color; opacity = result.opacity;
+        hasData = gdp > 0;
+    } else {
+        const pop = currentPopData[iso] || 0;
+        const result = getPopColor(pop);
+        color = result.color; opacity = result.opacity;
+        hasData = pop > 0;
+    }
+    
+    const borderColor = activeLayer === 'gdp' ? 'rgba(251,191,36,0.15)' : 'rgba(56,189,248,0.15)';
     layer.setStyle({
         fillColor: color, fillOpacity: opacity,
-        color: pop > 0 ? 'rgba(56,189,248,0.15)' : '#1e293b',
-        weight: pop > 0 ? 0.6 : 0.3,
-        opacity: pop > 0 ? 0.4 : 0.15,
+        color: hasData ? borderColor : '#1e293b',
+        weight: hasData ? 0.6 : 0.3,
+        opacity: hasData ? 0.4 : 0.15,
     });
 }
 
 // ===== HOVER TOOLTIP WITH SPARKLINE =====
 const tooltip = document.getElementById('hoverTooltip');
 
-function drawSparkline(iso, currentYear) {
+function drawSparkline(iso, currentYear, layer) {
+    layer = layer || 'pop';
     const canvas = document.getElementById('tooltipSparkline');
     const ctx = canvas.getContext('2d');
-    const ts = COUNTRY_TIMESERIES[iso];
+    const ts = layer === 'gdp' ? (typeof GDP_TIMESERIES !== 'undefined' ? GDP_TIMESERIES[iso] : null) : COUNTRY_TIMESERIES[iso];
+    const lineColor = layer === 'gdp' ? '#d97706' : '#1d4ed8';
+    const fillColor = layer === 'gdp' ? 'rgba(217,119,6,0.08)' : 'rgba(29,78,216,0.08)';
     
     // HiDPI support
     const dpr = window.devicePixelRatio || 1;
@@ -157,7 +220,7 @@ function drawSparkline(iso, currentYear) {
         if (dist < nearestDist) { nearestDist = dist; nearestIdx = i; }
     });
     const curX = xPos(ts[nearestIdx][0]);
-    ctx.strokeStyle = 'rgba(29,78,216,0.2)';
+    ctx.strokeStyle = lineColor.replace(')', ',0.2)').replace('rgb', 'rgba');
     ctx.lineWidth = 1;
     ctx.setLineDash([3,3]);
     ctx.beginPath(); ctx.moveTo(curX, top); ctx.lineTo(curX, bottom); ctx.stroke();
@@ -169,12 +232,12 @@ function drawSparkline(iso, currentYear) {
     ts.forEach(d => ctx.lineTo(xPos(d[0]), yPos(d[1])));
     ctx.lineTo(xPos(ts[ts.length-1][0]), bottom);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(29,78,216,0.08)';
+    ctx.fillStyle = fillColor;
     ctx.fill();
     
     // Line
     ctx.beginPath();
-    ctx.strokeStyle = '#1d4ed8';
+    ctx.strokeStyle = lineColor;
     ctx.lineWidth = 1.5;
     ts.forEach((d, i) => {
         const x = xPos(d[0]), y = yPos(d[1]);
@@ -187,7 +250,7 @@ function drawSparkline(iso, currentYear) {
     const cx = xPos(curD[0]), cy = yPos(curD[1]);
     ctx.beginPath();
     ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#1d4ed8';
+    ctx.fillStyle = lineColor;
     ctx.fill();
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 1;
@@ -218,8 +281,18 @@ function showTooltip(e, layer) {
     
     document.getElementById('tooltipName').textContent = name;
     document.getElementById('tooltipYear').textContent = yearLabel(year);
-    document.getElementById('tooltipLabel').textContent = t('people');
-    document.getElementById('tooltipPop').textContent = pop > 0 ? formatPop(pop) : t('noData');
+    if (activeLayer === 'gdp') {
+        const gdp = currentGdpData[iso] || 0;
+        document.getElementById('tooltipLabel').textContent = 'GDP (2015 US$)';
+        document.getElementById('tooltipPop').textContent = gdp > 0 ? formatGdp(gdp) : t('noData');
+        document.getElementById('tooltipPop').style.color = gdp > 0 ? '#d97706' : '#9ca3af';
+        drawSparkline(iso, year, 'gdp');
+    } else {
+        document.getElementById('tooltipLabel').textContent = t('people');
+        document.getElementById('tooltipPop').textContent = pop > 0 ? formatPop(pop) : t('noData');
+        document.getElementById('tooltipPop').style.color = pop > 0 ? '#1d4ed8' : '#9ca3af';
+        drawSparkline(iso, year, 'pop');
+    }
     document.getElementById('tooltipPop').style.color = pop > 0 ? '#1d4ed8' : '#9ca3af';
     
     drawSparkline(iso, year);
@@ -257,7 +330,11 @@ fetch('countries.geojson?v=13')
                         });
                         layer.bringToFront();
                         showTooltip(e, layer);
-                        highlightLegendBin(getPopBinIndex(pop));
+                        if (activeLayer === 'gdp') {
+                            highlightLegendBin(getGdpBinIndex(currentGdpData[getISO(feature)] || 0));
+                        } else {
+                            highlightLegendBin(getPopBinIndex(pop));
+                        }
                     },
                     mouseout: function(e) {
                         applyPopStyle(layer);
@@ -316,6 +393,7 @@ function updateMap(index) {
     const yearStr = String(year);
     
     currentPopData = OWID_POP[yearStr] || {};
+    currentGdpData = (typeof OWID_GDP !== 'undefined' && OWID_GDP[yearStr]) || {};
     
     document.getElementById('yearDisplay').textContent = yearLabel(year);
     
@@ -329,24 +407,46 @@ function updateMap(index) {
         geoLayer.eachLayer(l => applyPopStyle(l));
     }
     
-    // Stats panel — top 25
-    const sorted = Object.entries(currentPopData)
-        .map(([iso, pop]) => ({ iso, pop }))
-        .filter(c => c.pop > 0)
-        .sort((a, b) => b.pop - a.pop);
+    // Stats panel — active layer
+    let sorted, totalDisplay;
+    if (activeLayer === 'gdp') {
+        sorted = Object.entries(currentGdpData)
+            .map(([iso, val]) => ({ iso, val }))
+            .filter(c => c.val > 0)
+            .sort((a, b) => b.val - a.val);
+        const worldGdp = sorted.reduce((s, c) => s + c.val, 0);
+        totalDisplay = '~' + formatGdpShort(worldGdp);
+    } else {
+        sorted = Object.entries(currentPopData)
+            .map(([iso, val]) => ({ iso, val }))
+            .filter(c => c.val > 0)
+            .sort((a, b) => b.val - a.val);
+        totalDisplay = '~' + formatPopShort(total);
+    }
+    document.getElementById('worldTotal').textContent = totalDisplay;
     
-    const maxPop = sorted.length > 0 ? sorted[0].pop : 1;
     const regionStats = document.getElementById('regionStats');
+    const fmtFn = activeLayer === 'gdp' ? formatGdpShort : formatPopShort;
     regionStats.innerHTML = sorted.map((c, i) => {
-        const pct = (c.pop / maxPop * 100).toFixed(0);
         const name = getLocalName(c.iso);
         return `<div class="region-item">
             <span class="region-rank">${i+1}</span>
             <span class="region-name" title="${c.iso}">${name}</span>
-            <span class="region-pop">${formatPopShort(c.pop)}</span>
+            <span class="region-pop">${fmtFn(c.val)}</span>
         </div>`;
     }).join('');
 }
+
+// ===== DATA LAYER TABS =====
+document.querySelectorAll('.stats-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.stats-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        activeLayer = tab.dataset.layer;
+        buildLegend();
+        updateMap(currentIndex);
+    });
+});
 
 // ===== STATS PANEL TOGGLE =====
 const statsPanel = document.getElementById('statsPanel');
@@ -429,12 +529,11 @@ playBtn.addEventListener('click', () => {
 function buildLegend() {
     const legend = document.getElementById('colorLegend');
     let html = '';
-    // "No data" hatched block
+    const bins = activeLayer === 'gdp' ? GDP_BINS : POP_BINS;
     const ndLabel = currentLang === 'zh' ? '无数据' : 'No data';
     html += `<div class="legend-item"><div class="legend-block legend-hatched"></div><span>${ndLabel}</span></div>`;
-    // Colored blocks for each bin (skip index 0 = no data)
-    for (let i = 1; i < POP_BINS.length; i++) {
-        const b = POP_BINS[i];
+    for (let i = 1; i < bins.length; i++) {
+        const b = bins[i];
         const lbl = currentLang === 'zh' ? b.labelZh : b.label;
         html += `<div class="legend-item" data-bin="${i}"><div class="legend-block" style="background:${b.color};opacity:${b.opacity}"></div><span>${lbl}</span></div>`;
     }
@@ -468,6 +567,9 @@ function applyLanguage() {
     statsToggleBtn.textContent = statsVisible ? t('hide') : t('show');
     // Update logo
     document.querySelector('.logo').innerHTML = t('title') + ' <span>' + t('titleBold') + '</span>';
+    // Update tab labels
+    document.getElementById('tabPop').textContent = t('tabPop');
+    document.getElementById('tabGdp').textContent = t('tabGdp');
     // Rebuild legend with localized labels
     buildLegend();
     // Rebind tooltips with new language

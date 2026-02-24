@@ -10,7 +10,7 @@ const UI_STRINGS = {
         people: 'PEOPLE', noData: 'No data',
         disclaimer: 'Modern borders shown for reference only',
         dataSource: 'Data: HYDE 3.3 / UN WPP via Our World in Data',
-        langLabel: 'EN',
+        langLabel: 'EN', tabPop: 'Population', tabGdp: 'GDP',
     },
     zh: {
         title: '历史', titleBold: '地图集',
@@ -19,7 +19,7 @@ const UI_STRINGS = {
         people: '人口', noData: '无数据',
         disclaimer: '地图显示现代国界，仅供参考',
         dataSource: '数据来源：HYDE 3.3 / 联合国人口司 via Our World in Data',
-        langLabel: '中',
+        langLabel: '中', tabPop: '人口', tabGdp: 'GDP',
     }
 };
 
