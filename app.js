@@ -305,15 +305,8 @@ function generateDots(center, numDots, seed) {
     return dots;
 }
 
-// More dots = more visible. Scale so even small countries get dots.
-function getDotsPerPerson(totalPop) {
-    if (totalPop < 20e6) return 5000;
-    if (totalPop < 100e6) return 20000;
-    if (totalPop < 500e6) return 50000;
-    if (totalPop < 2e9) return 200000;
-    if (totalPop < 4e9) return 500000;
-    return 1000000;
-}
+// Fixed: 1 dot = 1,000,000 people. Always. No exceptions.
+const POP_PER_DOT = 1000000;
 
 function updateMap(index) {
     clearDots();
@@ -346,15 +339,14 @@ function updateMap(index) {
         </div>`;
     }).join('');
 
-    // Generate dots
-    const popPerDot = getDotsPerPerson(total);
+    // Generate dots — fixed scale: 1 dot = 1M
     const seed = year + 10000;
-    document.getElementById('dotScale').textContent = '1 dot = ' + formatPop(popPerDot);
+    document.getElementById('dotScale').textContent = '1 dot = 1M';
 
     centers.forEach(c => {
         const ratio = c.pop / maxPop;
         const color = getDotColor(ratio);
-        const numDots = Math.max(1, Math.round(c.pop / popPerDot));
+        const numDots = Math.max(1, Math.round(c.pop / POP_PER_DOT));
         const dots = generateDots(c, numDots, seed);
         const zoom = map.getZoom();
         const dotRadius = zoom < 3 ? 1.5 : zoom < 5 ? 2 : 2.5;
