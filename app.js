@@ -200,13 +200,14 @@ function drawSparkline(iso, currentYear) {
 
 function showTooltip(e, layer) {
     const iso = layer.feature.properties.ISO_A3;
-    const name = COUNTRY_NAMES[iso] || layer.feature.properties.NAME || iso;
+    const name = getLocalName(iso);
     const year = TIME_PERIODS[currentIndex];
     const pop = currentPopData[iso] || 0;
     
     document.getElementById('tooltipName').textContent = name;
     document.getElementById('tooltipYear').textContent = yearLabel(year);
-    document.getElementById('tooltipPop').textContent = pop > 0 ? formatPop(pop) : 'No data';
+    document.getElementById('tooltipLabel').textContent = t('people');
+    document.getElementById('tooltipPop').textContent = pop > 0 ? formatPop(pop) : t('noData');
     document.getElementById('tooltipPop').style.color = pop > 0 ? '#1d4ed8' : '#9ca3af';
     
     drawSparkline(iso, year);
@@ -231,7 +232,7 @@ fetch('countries.geojson?v=13')
         geoLayer = L.geoJSON(data, {
             style: getDefaultStyle,
             onEachFeature: function(feature, layer) {
-                layer.bindTooltip(feature.properties.NAME || '', {
+                layer.bindTooltip(getLocalName(feature.properties.ISO_A3) || feature.properties.NAME || '', {
                     className: 'country-tooltip', sticky: true, direction: 'top', offset: [0, -10],
                 });
                 layer.on({
@@ -325,7 +326,7 @@ function updateMap(index) {
     const regionStats = document.getElementById('regionStats');
     regionStats.innerHTML = sorted.map((c, i) => {
         const pct = (c.pop / maxPop * 100).toFixed(0);
-        const name = shortName(COUNTRY_NAMES[c.iso] || c.iso);
+        const name = getLocalName(c.iso);
         return `<div class="region-item">
             <span class="region-rank">${i+1}</span>
             <span class="region-name" title="${c.iso}">${name}</span>
@@ -435,6 +436,44 @@ function highlightLegendBin(binIdx) {
 function clearLegendHighlight() {
     document.querySelectorAll('.legend-item').forEach(el => el.classList.remove('active'));
 }
+
+// ===== LANGUAGE TOGGLE =====
+function applyLanguage() {
+    const btn = document.getElementById('langToggle');
+    btn.textContent = t('langLabel');
+    document.getElementById('searchInput').placeholder = t('search');
+    document.querySelector('.map-disclaimer').textContent = t('disclaimer');
+    // Update data source text
+    const ds = document.querySelector('.data-source');
+    if (ds) ds.childNodes[0].textContent = t('dataSource') + ' ';
+    // Update stats header
+    document.querySelector('.stats-header span').textContent = t('world');
+    // Update stats toggle
+    statsToggleBtn.textContent = statsVisible ? t('hide') : t('show');
+    // Update logo
+    document.querySelector('.logo').innerHTML = t('title') + ' <span>' + t('titleBold') + '</span>';
+    // Rebind tooltips with new language
+    if (geoLayer) {
+        geoLayer.eachLayer(l => {
+            const iso = l.feature.properties.ISO_A3;
+            l.unbindTooltip();
+            l.bindTooltip(getLocalName(iso) || l.feature.properties.NAME || '', {
+                className: 'country-tooltip', sticky: true, direction: 'top', offset: [0, -10],
+            });
+        });
+    }
+    // Re-render stats
+    updateMap(currentIndex);
+}
+
+document.getElementById('langToggle').addEventListener('click', () => {
+    currentLang = currentLang === 'en' ? 'zh' : 'en';
+    localStorage.setItem('atlas-lang', currentLang);
+    applyLanguage();
+});
+
+// Apply saved language on load
+applyLanguage();
 
 // Data source toggle
 document.getElementById('dataSourceToggle').addEventListener('click', (e) => {
