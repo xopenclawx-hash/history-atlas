@@ -20,6 +20,12 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png'
 const TIME_PERIODS = Object.keys(OWID_POP).map(Number).sort((a, b) => a - b);
 let currentIndex = 0;
 
+// Fix GeoJSON ISO mismatches — some features have ISO_A3="-99"
+const ISO_FIXES = {
+    'France': 'FRA', 'Norway': 'NOR', 'Northern Cyprus': 'CYP',
+    'Somaliland': 'SOM', 'Kosovo': 'KOS', 'Western Sahara': 'ESH',
+};
+
 function yearLabel(y) {
     if (y < 0) return Math.abs(y) + ' BCE';
     if (y === 0) return '1 CE';
@@ -91,12 +97,18 @@ function formatPopShort(n) {
 let geoLayer = null;
 let currentPopData = {};  // ISO3 -> pop for current year
 
+function getISO(feature) {
+    const iso = getISO(feature);
+    if (iso && iso !== '-99') return iso;
+    return ISO_FIXES[feature.properties.ADMIN] || ISO_FIXES[feature.properties.NAME] || iso;
+}
+
 function getDefaultStyle() {
     return { fillColor: '#0f172a', fillOpacity: 0.03, color: '#1e293b', weight: 0.4, opacity: 0.2 };
 }
 
 function applyPopStyle(layer) {
-    const iso = layer.feature.properties.ISO_A3;
+    const iso = getISO(layer.feature);
     const pop = currentPopData[iso] || 0;
     const { color, opacity } = getPopColor(pop);
     layer.setStyle({
@@ -199,7 +211,7 @@ function drawSparkline(iso, currentYear) {
 }
 
 function showTooltip(e, layer) {
-    const iso = layer.feature.properties.ISO_A3;
+    const iso = getISO(layer.feature);
     const name = getLocalName(iso);
     const year = TIME_PERIODS[currentIndex];
     const pop = currentPopData[iso] || 0;
@@ -232,12 +244,12 @@ fetch('countries.geojson?v=13')
         geoLayer = L.geoJSON(data, {
             style: getDefaultStyle,
             onEachFeature: function(feature, layer) {
-                layer.bindTooltip(getLocalName(feature.properties.ISO_A3) || feature.properties.NAME || '', {
+                layer.bindTooltip(getLocalName(getISO(feature)) || feature.properties.NAME || '', {
                     className: 'country-tooltip', sticky: true, direction: 'top', offset: [0, -10],
                 });
                 layer.on({
                     mouseover: function(e) {
-                        const iso = feature.properties.ISO_A3;
+                        const iso = getISO(feature);
                         const pop = currentPopData[iso] || 0;
                         layer.setStyle({
                             fillOpacity: Math.min(0.9, (layer.options.fillOpacity || 0.2) + 0.2),
@@ -285,7 +297,7 @@ searchInput.addEventListener('input', () => {
             const iso = item.dataset.iso;
             if (geoLayer) {
                 geoLayer.eachLayer(l => {
-                    if (l.feature.properties.ISO_A3 === iso) {
+                    if (l.getISO(feature) === iso) {
                         map.fitBounds(l.getBounds(), { padding: [40, 40] });
                     }
                 });
@@ -455,7 +467,7 @@ function applyLanguage() {
     // Rebind tooltips with new language
     if (geoLayer) {
         geoLayer.eachLayer(l => {
-            const iso = l.feature.properties.ISO_A3;
+            const iso = l.getISO(feature);
             l.unbindTooltip();
             l.bindTooltip(getLocalName(iso) || l.feature.properties.NAME || '', {
                 className: 'country-tooltip', sticky: true, direction: 'top', offset: [0, -10],

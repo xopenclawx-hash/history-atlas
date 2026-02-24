@@ -65,6 +65,7 @@ const CN_NAMES = {
 'UZB':'乌兹别克斯坦','VUT':'瓦努阿图','VEN':'委内瑞拉','VNM':'越南','YEM':'也门',
 'ZMB':'赞比亚','ZWE':'津巴布韦','HKG':'中国香港','MAC':'中国澳门',
 'ASM':'美属萨摩亚','GUM':'关岛','PRI':'波多黎各','VIR':'美属维尔京群岛',
+'KOS':'科索沃','ESH':'西撒哈拉',
 };
 
 function getLocalName(iso) {
