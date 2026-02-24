@@ -1050,10 +1050,11 @@ function showMigrationArrow(evt) {
     const points = getGreatCirclePoints(evt.from, evt.to, 40);
     const color = evt.color || ARROW_COLORS[evt.type] || '#38bdf8';
     
-    // Animated dashed line
+    // Animated dashed line — bright & thick for visibility
     const line = L.polyline([], {
-        color: color, weight: 2, opacity: 0.7,
-        dashArray: '6,4', className: 'migration-line'
+        color: color, weight: 3, opacity: 0.9,
+        dashArray: '8,5', className: 'migration-line',
+        pane: 'markerPane'  // render above country polygons
     }).addTo(arrowLayer);
     
     // Animate: draw line progressively
@@ -1064,9 +1065,9 @@ function showMigrationArrow(evt) {
             clearInterval(interval);
             // Add arrowhead at destination
             const marker = L.circleMarker(evt.to, {
-                radius: 5, fillColor: color, fillOpacity: 0.8,
-                color: '#fff', weight: 1, opacity: 0.6,
-                className: 'migration-dest'
+                radius: 7, fillColor: color, fillOpacity: 0.9,
+                color: '#fff', weight: 2, opacity: 0.8,
+                pane: 'markerPane'
             }).addTo(arrowLayer);
             
             // Add label
@@ -1076,11 +1077,11 @@ function showMigrationArrow(evt) {
                 className: 'migration-tooltip'
             }).openTooltip();
             
-            // Fade out after 3 seconds
+            // Fade out after 5 seconds
             setTimeout(() => {
                 arrowLayer.removeLayer(line);
                 arrowLayer.removeLayer(marker);
-            }, 3500);
+            }, 5000);
             return;
         }
         drawn.push(points[step]);
@@ -1090,8 +1091,9 @@ function showMigrationArrow(evt) {
     
     // Source pulse
     const pulse = L.circleMarker(evt.from, {
-        radius: 4, fillColor: color, fillOpacity: 0.6,
-        color: color, weight: 2, opacity: 0.4,
+        radius: 6, fillColor: color, fillOpacity: 0.7,
+        color: color, weight: 2, opacity: 0.5,
+        pane: 'markerPane'
     }).addTo(arrowLayer);
     setTimeout(() => arrowLayer.removeLayer(pulse), 2000);
     
