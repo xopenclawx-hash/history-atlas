@@ -279,21 +279,16 @@ function getDotColor(ratio) {
     return '#22d3ee';
 }
 
-// Spread scales with population: large population = large area covered
-// A center with 100M covers a huge region; a center with 100K is a small city
+// Spread: now centers are already subdivided, so keep spread moderate
+// Just enough to fill gaps between sub-centers
 function getSpread(pop) {
-    // Roughly: spread in degrees ≈ how far dots scatter from center
-    // 1 degree ≈ 111km
-    if (pop > 100e6) return 4.0;   // ~440km radius — covers a large province/region
-    if (pop > 50e6) return 3.5;    // ~390km
-    if (pop > 20e6) return 3.0;    // ~330km
-    if (pop > 10e6) return 2.5;    // ~280km
-    if (pop > 5e6) return 2.0;     // ~220km
-    if (pop > 1e6) return 1.5;     // ~170km
-    if (pop > 500000) return 1.2;  // ~130km
-    if (pop > 100000) return 0.8;  // ~90km
-    if (pop > 10000) return 0.5;   // ~55km
-    return 0.3;                     // small settlement
+    if (pop > 10e6) return 1.2;
+    if (pop > 5e6) return 1.0;
+    if (pop > 1e6) return 0.7;
+    if (pop > 500000) return 0.5;
+    if (pop > 100000) return 0.4;
+    if (pop > 10000) return 0.3;
+    return 0.2;
 }
 
 function generateDots(center, numDots, seed) {
