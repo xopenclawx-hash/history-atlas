@@ -121,7 +121,7 @@ function drawSparkline(iso, currentYear) {
     
     // HiDPI support
     const dpr = window.devicePixelRatio || 1;
-    const w = 180, h = 50;
+    const w = 200, h = 70;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     canvas.style.width = w + 'px';
@@ -129,54 +129,77 @@ function drawSparkline(iso, currentYear) {
     ctx.scale(dpr, dpr);
     
     if (!ts || ts.length < 2) { ctx.clearRect(0,0,w,h); return; }
-    
     ctx.clearRect(0, 0, w, h);
     
     const maxPop = Math.max(...ts.map(d => d[1]));
     const minYear = ts[0][0], maxYear = ts[ts.length-1][0];
     const yearRange = maxYear - minYear || 1;
     
-    // Draw line
-    ctx.beginPath();
-    ctx.strokeStyle = '#1d4ed8';
-    ctx.lineWidth = 1.5;
-    ts.forEach((d, i) => {
-        const x = ((d[0] - minYear) / yearRange) * 175 + 2;
-        const y = 48 - (d[1] / maxPop) * 44;
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
+    // Chart area with margins for labels
+    const left = 2, right = w - 2, top = 2, bottom = h - 14;
+    const chartW = right - left, chartH = bottom - top;
     
-    // Fill under
-    ctx.lineTo(177, 48); ctx.lineTo(2, 48); ctx.closePath();
-    ctx.fillStyle = 'rgba(29,78,216,0.1)';
-    ctx.fill();
+    function xPos(year) { return left + ((year - minYear) / yearRange) * chartW; }
+    function yPos(pop) { return bottom - (pop / maxPop) * chartH; }
     
-    // Current year dot
+    // Grid line at current year
     let nearestIdx = 0, nearestDist = Infinity;
     ts.forEach((d, i) => {
         const dist = Math.abs(d[0] - currentYear);
         if (dist < nearestDist) { nearestDist = dist; nearestIdx = i; }
     });
-    const d = ts[nearestIdx];
-    const cx = ((d[0] - minYear) / yearRange) * 175 + 2;
-    const cy = 48 - (d[1] / maxPop) * 44;
+    const curX = xPos(ts[nearestIdx][0]);
+    ctx.strokeStyle = 'rgba(29,78,216,0.2)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(curX, top); ctx.lineTo(curX, bottom); ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Area fill
     ctx.beginPath();
-    ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-    ctx.fillStyle = '#1d4ed8';
+    ctx.moveTo(xPos(ts[0][0]), bottom);
+    ts.forEach(d => ctx.lineTo(xPos(d[0]), yPos(d[1])));
+    ctx.lineTo(xPos(ts[ts.length-1][0]), bottom);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(29,78,216,0.08)';
     ctx.fill();
     
-    // Peak label
-    ctx.fillStyle = '#6b7280';
-    ctx.font = '9px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText(formatPopShort(maxPop), 175, 10);
+    // Line
+    ctx.beginPath();
+    ctx.strokeStyle = '#1d4ed8';
+    ctx.lineWidth = 1.5;
+    ts.forEach((d, i) => {
+        const x = xPos(d[0]), y = yPos(d[1]);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
     
-    // Year labels
+    // Current year dot + value
+    const curD = ts[nearestIdx];
+    const cx = xPos(curD[0]), cy = yPos(curD[1]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#1d4ed8';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    
+    // Value label near dot
+    ctx.fillStyle = '#374151';
+    ctx.font = 'bold 10px -apple-system, sans-serif';
+    const valLabel = formatPopShort(curD[1]);
+    const valX = cx + 6 > w - 40 ? cx - 6 : cx + 6;
+    ctx.textAlign = cx + 6 > w - 40 ? 'right' : 'left';
+    ctx.fillText(valLabel, valX, cy - 4);
+    
+    // Year axis labels (below chart)
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = '9px -apple-system, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(yearLabel(minYear), 0, 48);
+    ctx.fillText(yearLabel(minYear), left, h - 2);
     ctx.textAlign = 'right';
-    ctx.fillText(yearLabel(maxYear), 178, 48);
+    ctx.fillText(yearLabel(maxYear), right, h - 2);
 }
 
 function showTooltip(e, layer) {
