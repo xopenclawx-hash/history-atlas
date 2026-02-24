@@ -663,7 +663,7 @@ playBtn.addEventListener('click', () => {
                 playBtn.classList.remove('playing');
                 playBtn.innerHTML = '&#9654;';
             }
-        }, 250);
+        }, 400);
     }
 });
 
@@ -1093,10 +1093,14 @@ function showMigrationShip(evt) {
     const icon = evt.icon || '⛵';
     const label = currentLang === 'zh' ? evt.labelZh : evt.label;
     
-    // Faint trail line
+    // Glowing trail — layered for depth
+    const trailGlow = L.polyline([], {
+        color: 'rgba(56,189,248,0.06)', weight: 8,
+        lineCap: 'round', lineJoin: 'round', pane: 'markerPane'
+    }).addTo(shipLayer);
     const trail = L.polyline([], {
-        color: 'rgba(255,255,255,0.15)', weight: 1.5,
-        dashArray: '4,6', pane: 'markerPane'
+        color: 'rgba(56,189,248,0.2)', weight: 1.5,
+        dashArray: '6,8', lineCap: 'round', pane: 'markerPane'
     }).addTo(shipLayer);
     
     // Ship icon as DivIcon marker
@@ -1121,19 +1125,21 @@ function showMigrationShip(evt) {
             });
             const tip = L.marker(evt.to, { icon: tipIcon, pane: 'markerPane', zIndexOffset: 1001 }).addTo(shipLayer);
             
-            // Fade out after 4s
+            // Fade out after 5s
             setTimeout(() => {
+                shipLayer.removeLayer(trailGlow);
                 shipLayer.removeLayer(trail);
                 shipLayer.removeLayer(ship);
                 shipLayer.removeLayer(tip);
-            }, 4000);
+            }, 5000);
             return;
         }
         ship.setLatLng(points[step]);
         trailPts.push(points[step]);
         trail.setLatLngs(trailPts);
+        trailGlow.setLatLngs(trailPts);
         step++;
-    }, 35);
+    }, 45);
     
     activeShips.push({ interval });
 }
