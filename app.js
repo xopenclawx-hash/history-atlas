@@ -3,17 +3,17 @@
 // ===== MAP INIT =====
 const map = L.map('map', {
     zoomControl: true, attributionControl: true,
-    worldCopyJump: false,
+    worldCopyJump: true,
     minZoom: 2, maxZoom: 10,
     zoomSnap: 0.5, zoomDelta: 0.5,
     wheelPxPerZoomLevel: 120,
-    maxBounds: [[-90, -220], [90, 220]],
-    maxBoundsViscosity: 1.0,
-}).setView([20, 15], 2);
+    maxBounds: [[-85, -Infinity], [85, Infinity]],
+    maxBoundsViscosity: 0.5,
+}).setView([20, 15], 2.5);
 
 // No labels layer — country names shown via hover/tooltip only (cleaner look)
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; CARTO', maxZoom: 10, subdomains: 'abcd', noWrap: true, bounds: [[-85,-180],[85,180]]
+    attribution: '&copy; CARTO', maxZoom: 10, subdomains: 'abcd'
 }).addTo(map);
 
 // ===== TIME PERIODS =====
