@@ -4,130 +4,84 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>History Atlas</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="styles.css?v=29">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="styles.css?v=30"/>
 </head>
 <body>
-    <!-- Top Bar -->
-    <div class="top-bar">
-        <div class="top-bar-left">
-            <h1>HISTORY <span class="accent">ATLAS</span></h1>
+    <!-- Header -->
+    <div class="header">
+        <div class="logo">HISTORY <span>ATLAS</span></div>
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Search countries..."/>
+            <div class="search-results" id="searchResults"></div>
         </div>
-        <div class="top-bar-center">
-            <div class="search-box">
-                <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
-                <input type="text" id="searchInput" placeholder="Search countries..." autocomplete="off">
-                <div class="search-results" id="searchResults"></div>
-            </div>
-        </div>
-        <div class="top-bar-right">
-            <div class="year-badge" id="yearDisplay">3000 BC</div>
+        <div class="year-display">
+            <span id="yearDisplay">3000 BC</span>
         </div>
     </div>
 
     <!-- Map -->
     <div id="map"></div>
 
-    <!-- Info Panel Toggle (when hidden) -->
-    <button class="info-panel-toggle" id="infoPanelToggle" style="display:none;" title="Show country info">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15 18 9 12 15 6"/>
-        </svg>
-    </button>
-
-    <!-- Info Panel (right side) -->
-    <div class="info-panel" id="infoPanel">
-        <button class="info-close" id="infoPanelClose">&times;</button>
-        <div class="info-scroll">
-            <div class="info-header">
-                <div class="info-country-name" id="infoName">--</div>
-                <div class="info-continent" id="infoContinent">--</div>
-            </div>
-            <div class="info-stats">
-                <div class="info-stat">
-                    <div class="info-stat-label">SUBREGION</div>
-                    <div class="info-stat-value" id="infoSubregion">--</div>
-                </div>
-                <div class="info-stat">
-                    <div class="info-stat-label">POPULATION (MODERN EST.)</div>
-                    <div class="info-stat-value" id="infoPopModern">--</div>
-                </div>
-                <div class="info-stat">
-                    <div class="info-stat-label">GDP (USD MILLIONS)</div>
-                    <div class="info-stat-value" id="infoGDP">--</div>
-                </div>
-                <div class="info-stat">
-                    <div class="info-stat-label">ECONOMY</div>
-                    <div class="info-stat-value" id="infoEconomy">--</div>
-                </div>
-                <div class="info-divider"></div>
-                <div class="info-stat">
-                    <div class="info-stat-label">HISTORICAL POPULATION (<span id="infoHistYear">--</span>)</div>
-                    <div class="info-stat-value accent" id="infoHistPop">--</div>
-                </div>
-                <div id="infoHistBreakdown" class="info-breakdown"></div>
-            </div>
+    <!-- Hover tooltip (like OWID) -->
+    <div class="hover-tooltip" id="hoverTooltip">
+        <div class="tooltip-header">
+            <strong id="tooltipName">--</strong>
+            <span id="tooltipYear">--</span>
+        </div>
+        <div class="tooltip-body">
+            <div class="tooltip-label">people</div>
+            <div class="tooltip-value" id="tooltipPop">--</div>
+            <canvas id="tooltipSparkline" width="180" height="50"></canvas>
         </div>
     </div>
 
-    <!-- Stats Panel Show/Hide Button -->
-    <button class="stats-show-btn" id="statsToggleBtn">Hide</button>
-
-    <!-- Stats Panel (bottom-right, fixed height) -->
+    <!-- Stats panel -->
     <div class="stats-panel" id="statsPanel">
-        <div class="stats-header-row">
-            <div class="stats-header">
-                <div class="stats-era" id="eraDisplay">Bronze Age</div>
-                <div class="stats-pop">
-                    <span class="stats-pop-label">WORLD</span>
-                    <span class="stats-pop-value" id="populationDisplay">~6.6M</span>
-                </div>
-            </div>
+        <div class="stats-header">
+            <span>WORLD</span>
+            <span class="stats-total" id="worldTotal">--</span>
         </div>
-        <!-- Data Layer Tabs -->
-        <div class="layer-tabs">
-            <button class="layer-tab active" data-layer="population">Population</button>
-            <button class="layer-tab" data-layer="gdp">GDP</button>
-        </div>
-        <div class="stats-body">
-            <div class="stats-scale" id="dotScale">1 dot = 20K</div>
-            <div class="stats-list" id="regionStats"></div>
-        </div>
+        <div class="stats-body" id="regionStats"></div>
+        <button class="stats-toggle" id="statsToggleBtn">HIDE</button>
     </div>
 
-    <!-- Map disclaimer -->
-    <div class="map-disclaimer">Modern borders shown for reference only</div>
-
-    <!-- Data source -->
-    <div class="data-source" id="dataSource">
-        Sources: McEvedy &amp; Jones, Maddison Project, UN WPP, HYDE 3.2
-        <span class="data-source-toggle" id="dataSourceToggle">ⓘ</span>
-        <div class="data-source-detail" id="dataSourceDetail">
-            <strong>Population Data Sources</strong><br>
-            Ancient periods: McEvedy &amp; Jones (Atlas of World Population History)<br>
-            Historical estimates: Maddison Project Database, HYDE 3.2<br>
-            Modern data: UN World Population Prospects 2022<br>
-            <br>
-            <strong>Note:</strong> Ancient population figures are scholarly estimates with significant uncertainty. 
-            Modern national borders are shown for geographic reference only and do not represent historical political boundaries.
-        </div>
+    <!-- Color legend (like OWID) -->
+    <div class="color-legend">
+        <span class="legend-label">No data</span>
+        <div class="legend-bar-hatched"></div>
+        <span class="legend-label">0</span>
+        <div class="legend-gradient"></div>
+        <span class="legend-label">10M</span>
+        <span class="legend-label">100M</span>
+        <span class="legend-label">1B</span>
     </div>
 
     <!-- Timeline -->
     <div class="timeline-container">
-        <div class="timeline-year-label" id="sliderYearLabel">3000 BC</div>
-        <input type="range" id="timelineSlider" class="timeline-slider" min="0" max="1000" value="0">
-        <div class="timeline-markers">
-            <span>3000 BC</span><span>1000 BC</span><span>1 AD</span><span>1000 AD</span>
-            <span>1500</span><span>1800</span><span>1900</span><span>1950</span><span>2000</span><span>2025</span>
+        <button class="play-btn" id="playBtn">&#9654;</button>
+        <div class="timeline-track">
+            <input type="range" id="timelineSlider" min="0" max="1000" value="0"/>
+            <div class="slider-year-label" id="sliderYearLabel"></div>
+        </div>
+    </div>
+
+    <!-- Map disclaimer + sources -->
+    <div class="map-disclaimer">Modern borders shown for reference only</div>
+    <div class="data-source">
+        Data: HYDE 3.3 / UN WPP via Our World in Data
+        <span class="data-source-toggle" id="dataSourceToggle">i</span>
+        <div class="data-source-detail" id="dataSourceDetail">
+            <strong>Data Sources</strong><br>
+            Historical (10000 BCE - 1799): HYDE 3.3 (PBL Netherlands)<br>
+            Modern (1800 - 2023): UN World Population Prospects + Gapminder<br>
+            Via: Our World in Data (ourworldindata.org)<br><br>
+            <strong>License:</strong> CC BY 4.0
         </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="countries-data.js?v=29"></script>
-    <script src="population-centers.js?v=29"></script>
-    <script src="app.js?v=29"></script>
+    <script src="owid-data.js?v=30"></script>
+    <script src="app.js?v=30"></script>
 </body>
 </html>
