@@ -249,7 +249,8 @@ searchInput.addEventListener('input', function() {
 
 searchInput.addEventListener('blur', () => setTimeout(() => searchResults.classList.remove('active'), 200));
 
-// ===== DOT DENSITY =====
+// ===== DOT DENSITY (Canvas for performance) =====
+const dotRenderer = L.canvas({ padding: 0.5 });
 let dotMarkers = [];
 let currentIndex = 0;
 
@@ -316,8 +317,8 @@ function generateDots(center, numDots, seed) {
     return dots;
 }
 
-// Fixed: 1 dot = 1,000,000 people. Always. No exceptions.
-const POP_PER_DOT = 1000000;
+// Fixed: 1 dot = 100,000 people. Always.
+const POP_PER_DOT = 100000;
 
 function updateMap(index) {
     clearDots();
@@ -352,7 +353,7 @@ function updateMap(index) {
 
     // Generate dots — fixed scale: 1 dot = 1M
     const seed = year + 10000;
-    document.getElementById('dotScale').textContent = '1 dot = 1M';
+    document.getElementById('dotScale').textContent = '1 dot = 100K';
 
     centers.forEach(c => {
         const ratio = c.pop / maxPop;
@@ -360,11 +361,12 @@ function updateMap(index) {
         const numDots = Math.max(1, Math.round(c.pop / POP_PER_DOT));
         const dots = generateDots(c, numDots, seed);
         const zoom = map.getZoom();
-        const dotRadius = zoom < 3 ? 1.5 : zoom < 5 ? 2 : 2.5;
+        const dotRadius = zoom < 3 ? 1 : zoom < 5 ? 1.5 : 2;
         dots.forEach(([lat, lng]) => {
             const dot = L.circleMarker([lat, lng], {
                 radius: dotRadius, fillColor: color, color: color,
-                weight: 0, fillOpacity: 0.6, interactive: false,
+                weight: 0, fillOpacity: 0.55, interactive: false,
+                renderer: dotRenderer,
             });
             dot.addTo(map);
             dotMarkers.push(dot);
