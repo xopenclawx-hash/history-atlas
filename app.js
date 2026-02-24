@@ -67,6 +67,23 @@ function formatPop(n) {
     return String(n);
 }
 
+// Shorten long country names for stats panel
+const SHORT_NAMES = {
+    'Democratic Republic of Congo': 'DR Congo',
+    'Central African Republic': 'Central African Rep.',
+    'United Arab Emirates': 'UAE',
+    'Bosnia and Herzegovina': 'Bosnia & Herzegovina',
+    'Dominican Republic': 'Dominican Rep.',
+    'Trinidad and Tobago': 'Trinidad & Tobago',
+    'Sao Tome and Principe': 'Sao Tome & Principe',
+    'Saint Vincent and the Grenadines': 'St. Vincent',
+    'Micronesia (country)': 'Micronesia',
+};
+
+function shortName(name) {
+    return SHORT_NAMES[name] || name;
+}
+
 function formatPopShort(n) {
     if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
     if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
@@ -287,7 +304,7 @@ function updateMap(index) {
     const regionStats = document.getElementById('regionStats');
     regionStats.innerHTML = sorted.map((c, i) => {
         const pct = (c.pop / maxPop * 100).toFixed(0);
-        const name = COUNTRY_NAMES[c.iso] || c.iso;
+        const name = shortName(COUNTRY_NAMES[c.iso] || c.iso);
         return `<div class="region-item">
             <span class="region-rank">${i+1}</span>
             <span class="region-name" title="${c.iso}">${name}</span>
