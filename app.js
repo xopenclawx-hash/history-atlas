@@ -279,10 +279,10 @@ function getDotColor(ratio) {
     return '#22d3ee';
 }
 
-// Tiny jitter only — data already has rural + subdivided centers covering territories
+// Near-zero jitter — data points are pre-validated on land
 function generateDots(center, numDots, seed) {
     const dots = [];
-    const jitter = 0.08; // ~8km — just enough to avoid pixel overlap
+    const jitter = 0.02; // ~2km — pixel-level scatter only
     for (let i = 0; i < numDots; i++) {
         const s = seed + i * 7 + (center.name || '').length;
         const r1 = seededRandom(s);

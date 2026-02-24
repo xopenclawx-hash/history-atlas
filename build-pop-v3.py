@@ -1091,6 +1091,15 @@ for year in all_years:
     
     data[year_key] = build_era(year, pop_data)
 
+# Final pass: remove any center not on land
+print("Filtering ocean points...")
+for year_key in data:
+    before = len(data[year_key])
+    data[year_key] = [c for c in data[year_key] if is_on_land(c["lat"], c["lng"])]
+    removed = before - len(data[year_key])
+    if removed > 0:
+        print(f"  {year_key}: removed {removed} ocean points")
+
 # Write output
 output = "// History Atlas — Population Centers v3\n"
 output += "// ALL UN member states + territories, historically accurate\n"
