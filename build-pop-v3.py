@@ -436,19 +436,61 @@ def subdivide_center(lat, lng, pop, name, max_per_center=5000000):
     
     return results
 
+# Build a map of ISO3 -> country polygon for rural distribution
+_country_polys = {}
+for feat in _land_geojson["features"]:
+    iso = feat["properties"].get("ISO_A3", "")
+    if iso and iso != "-99":
+        try:
+            geom = shape(feat["geometry"])
+            if geom.is_valid:
+                _country_polys[iso] = geom
+        except:
+            pass
+print(f"Country polygons indexed: {len(_country_polys)}")
+
+def random_points_in_polygon(polygon, n, rng):
+    """Generate n random points inside a polygon."""
+    from shapely.geometry import box
+    points = []
+    minx, miny, maxx, maxy = polygon.bounds
+    attempts = 0
+    max_attempts = n * 20
+    while len(points) < n and attempts < max_attempts:
+        attempts += 1
+        x = rng.uniform(minx, maxx)
+        y = rng.uniform(miny, maxy)
+        pt = Point(x, y)
+        if polygon.contains(pt):
+            points.append((round(y, 2), round(x, 2)))  # lat, lng
+    return points
+
 def build_era(year, country_pops):
-    """Convert {ISO3: population} to list of population centers."""
+    """Convert {ISO3: population} to list of population centers.
+    
+    For each country:
+    - 65% goes to defined city centers (subdivided if large)
+    - 35% scattered as rural population across the country territory
+    """
     centers = []
+    URBAN_SHARE = 0.65  # cities get 65%
+    RURAL_SHARE = 0.35  # rural gets 35%
+    RURAL_POP_PER_POINT = 500000  # each rural point = 500K
+    
     for iso3, pop in country_pops.items():
         if iso3 not in COUNTRIES:
             continue
         if pop <= 0:
             continue
+        
+        urban_pop = int(pop * URBAN_SHARE)
+        rural_pop = pop - urban_pop
+        
+        # ---- URBAN: distribute among defined centers ----
         locs = COUNTRIES[iso3]
         n = len(locs)
         weights = get_weights(iso3, year, n)
         
-        # Normalize weights
         total_w = sum(weights)
         if total_w <= 0:
             continue
@@ -457,11 +499,28 @@ def build_era(year, country_pops):
         for i, (lat, lng, name) in enumerate(locs):
             if i >= len(weights):
                 break
-            p = int(pop * weights[i])
+            p = int(urban_pop * weights[i])
             if p > 0:
-                # Subdivide large centers into realistic clusters
                 sub_centers = subdivide_center(lat, lng, p, name)
                 centers.extend(sub_centers)
+        
+        # ---- RURAL: scatter across country territory ----
+        if rural_pop > 0 and iso3 in _country_polys:
+            poly = _country_polys[iso3]
+            n_rural = max(1, rural_pop // RURAL_POP_PER_POINT)
+            n_rural = min(n_rural, 100)  # cap for performance
+            rural_per_point = rural_pop // n_rural
+            
+            rng = _random.Random(hash(iso3) + year)
+            pts = random_points_in_polygon(poly, n_rural, rng)
+            
+            for lat, lng in pts:
+                centers.append({
+                    "lat": lat, "lng": lng,
+                    "pop": rural_per_point,
+                    "name": iso3 + " rural"
+                })
+    
     return centers
 
 
