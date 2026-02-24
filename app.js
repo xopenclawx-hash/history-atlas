@@ -341,8 +341,13 @@ slider.addEventListener('input', (e) => {
     const pct = parseInt(e.target.value) / 1000;
     sliderLabel.style.left = (rect.left + pct * rect.width) + 'px';
 });
-slider.addEventListener('mouseup', () => setTimeout(() => sliderLabel.style.opacity = '0', 800));
-slider.addEventListener('touchend', () => setTimeout(() => sliderLabel.style.opacity = '0', 800));
+slider.addEventListener('mouseup', () => setTimeout(() => sliderLabel.style.opacity = '0', 600));
+slider.addEventListener('touchend', () => setTimeout(() => sliderLabel.style.opacity = '0', 600));
+// Ensure label starts hidden
+sliderLabel.style.opacity = '0';
+sliderLabel.style.display = 'none';
+slider.addEventListener('mousedown', () => { sliderLabel.style.display = 'block'; });
+slider.addEventListener('touchstart', () => { sliderLabel.style.display = 'block'; });
 
 // Keyboard
 document.addEventListener('keydown', (e) => {
