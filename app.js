@@ -98,9 +98,9 @@ let geoLayer = null;
 let currentPopData = {};  // ISO3 -> pop for current year
 
 function getISO(feature) {
-    const iso = getISO(feature);
-    if (iso && iso !== '-99') return iso;
-    return ISO_FIXES[feature.properties.ADMIN] || ISO_FIXES[feature.properties.NAME] || iso;
+    const raw = feature.properties.ISO_A3;
+    if (raw && raw !== '-99') return raw;
+    return ISO_FIXES[feature.properties.ADMIN] || ISO_FIXES[feature.properties.NAME] || raw;
 }
 
 function getDefaultStyle() {
@@ -297,7 +297,7 @@ searchInput.addEventListener('input', () => {
             const iso = item.dataset.iso;
             if (geoLayer) {
                 geoLayer.eachLayer(l => {
-                    if (l.getISO(feature) === iso) {
+                    if (getISO(l.feature) === iso) {
                         map.fitBounds(l.getBounds(), { padding: [40, 40] });
                     }
                 });
@@ -467,7 +467,7 @@ function applyLanguage() {
     // Rebind tooltips with new language
     if (geoLayer) {
         geoLayer.eachLayer(l => {
-            const iso = l.getISO(feature);
+            const iso = getISO(l.feature);
             l.unbindTooltip();
             l.bindTooltip(getLocalName(iso) || l.feature.properties.NAME || '', {
                 className: 'country-tooltip', sticky: true, direction: 'top', offset: [0, -10],
@@ -484,8 +484,11 @@ document.getElementById('langToggle').addEventListener('click', () => {
     applyLanguage();
 });
 
-// Apply saved language on load
-applyLanguage();
+// Apply saved language on load (UI only, map update happens after GeoJSON loads)
+document.getElementById('langToggle').textContent = t('langLabel');
+document.getElementById('searchInput').placeholder = t('search');
+document.querySelector('.map-disclaimer').textContent = t('disclaimer');
+document.querySelector('.logo').innerHTML = t('title') + ' <span>' + t('titleBold') + '</span>';
 
 // Data source toggle
 document.getElementById('dataSourceToggle').addEventListener('click', (e) => {
