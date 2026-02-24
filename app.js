@@ -473,14 +473,16 @@ searchInput.addEventListener('input', () => {
     if (q.length < 2) { searchResults.classList.remove('active'); return; }
     
     const matches = Object.entries(COUNTRY_NAMES)
-        .filter(([_, name]) => name.toLowerCase().includes(q))
+        .filter(([iso, name]) => name.toLowerCase().includes(q) || (CN_NAMES[iso] && CN_NAMES[iso].includes(q)))
         .slice(0, 8);
     
     if (matches.length === 0) { searchResults.classList.remove('active'); return; }
     
-    searchResults.innerHTML = matches.map(([iso, name]) =>
-        `<div class="search-item" data-iso="${iso}">${name}</div>`
-    ).join('');
+    searchResults.innerHTML = matches.map(([iso, name]) => {
+        const cn = CN_NAMES[iso];
+        const display = cn ? `${name} / ${cn}` : name;
+        return `<div class="search-item" data-iso="${iso}">${display}</div>`;
+    }).join('');
     searchResults.classList.add('active');
     
     searchResults.querySelectorAll('.search-item').forEach(item => {
