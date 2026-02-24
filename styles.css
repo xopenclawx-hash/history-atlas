@@ -118,7 +118,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 @keyframes eventSlideIn { from { opacity: 0; transform: translateX(-50%) translateY(-10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
 /* Timeline event markers — subtle notches below track */
-.timeline-dot { position: absolute; width: 2px; height: 8px; bottom: 2px; transform: translateX(-50%); z-index: 2; cursor: pointer; transition: all 0.2s; opacity: 0.25; border-radius: 0 0 1px 1px; }
-.timeline-dot:hover { opacity: 0.8; height: 14px; bottom: -1px; }
+.timeline-dot { position: absolute; width: 1px; height: 6px; bottom: 4px; transform: translateX(-50%); z-index: 2; cursor: pointer; transition: all 0.2s; opacity: 0.15; border-radius: 0 0 1px 1px; }
+.timeline-dot.major { width: 2px; height: 10px; bottom: 2px; opacity: 0.3; }
+.timeline-dot:hover { opacity: 0.8; height: 16px; bottom: 0; }
 .timeline-dot-tooltip { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: rgba(15,23,42,0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 4px 8px; font-size: 10px; color: #e2e8f0; white-space: nowrap; display: none; pointer-events: none; margin-bottom: 6px; }
 .timeline-dot:hover .timeline-dot-tooltip { display: block; }

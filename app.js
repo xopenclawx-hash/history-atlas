@@ -801,7 +801,9 @@ function buildTimelineDots() {
         const pct = ((evt.year - minYear) / range) * 100;
         if (pct < 0 || pct > 100) return;
         const dot = document.createElement('div');
-        dot.className = 'timeline-dot';
+        const isMajor = ['war','collapse','plague'].includes(evt.type) || 
+            ['-3000','-221','476','1347','1492','1760','1914','1939','1945','1989','2020'].includes(String(evt.year));
+        dot.className = 'timeline-dot' + (isMajor ? ' major' : '');
         dot.style.left = pct + '%';
         dot.style.backgroundColor = EVENT_COLORS[evt.type] || '#38bdf8';
         const tip = document.createElement('div');
