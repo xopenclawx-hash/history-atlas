@@ -1027,6 +1027,106 @@ playBtn.addEventListener('click', function(e) {
 // Make autoplay smoother by reducing interval
 const _origPlayBtn = playBtn.cloneNode(true);
 
+// ===== ANIMATED MIGRATION ARROWS =====
+let activeArrows = [];
+const arrowLayer = L.layerGroup().addTo(map);
+
+function getGreatCirclePoints(from, to, steps) {
+    // Simple interpolation with slight curve (bezier-ish)
+    const pts = [];
+    const midLat = (from[0] + to[0]) / 2 + (Math.abs(to[1] - from[1]) > 60 ? 15 : 8);
+    const midLng = (from[1] + to[1]) / 2;
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        // Quadratic bezier
+        const lat = (1-t)*(1-t)*from[0] + 2*(1-t)*t*midLat + t*t*to[0];
+        const lng = (1-t)*(1-t)*from[1] + 2*(1-t)*t*midLng + t*t*to[1];
+        pts.push([lat, lng]);
+    }
+    return pts;
+}
+
+function showMigrationArrow(evt) {
+    const points = getGreatCirclePoints(evt.from, evt.to, 40);
+    const color = evt.color || ARROW_COLORS[evt.type] || '#38bdf8';
+    
+    // Animated dashed line
+    const line = L.polyline([], {
+        color: color, weight: 2, opacity: 0.7,
+        dashArray: '6,4', className: 'migration-line'
+    }).addTo(arrowLayer);
+    
+    // Animate: draw line progressively
+    let step = 0;
+    const drawn = [];
+    const interval = setInterval(() => {
+        if (step >= points.length) {
+            clearInterval(interval);
+            // Add arrowhead at destination
+            const marker = L.circleMarker(evt.to, {
+                radius: 5, fillColor: color, fillOpacity: 0.8,
+                color: '#fff', weight: 1, opacity: 0.6,
+                className: 'migration-dest'
+            }).addTo(arrowLayer);
+            
+            // Add label
+            const label = currentLang === 'zh' ? evt.labelZh : evt.label;
+            marker.bindTooltip(label, {
+                permanent: true, direction: 'top', offset: [0, -8],
+                className: 'migration-tooltip'
+            }).openTooltip();
+            
+            // Fade out after 3 seconds
+            setTimeout(() => {
+                arrowLayer.removeLayer(line);
+                arrowLayer.removeLayer(marker);
+            }, 3500);
+            return;
+        }
+        drawn.push(points[step]);
+        line.setLatLngs(drawn);
+        step += 2; // speed: 2 points per frame
+    }, 40);
+    
+    // Source pulse
+    const pulse = L.circleMarker(evt.from, {
+        radius: 4, fillColor: color, fillOpacity: 0.6,
+        color: color, weight: 2, opacity: 0.4,
+    }).addTo(arrowLayer);
+    setTimeout(() => arrowLayer.removeLayer(pulse), 2000);
+    
+    activeArrows.push({ line, interval });
+}
+
+function clearArrows() {
+    activeArrows.forEach(a => {
+        if (a.interval) clearInterval(a.interval);
+    });
+    arrowLayer.clearLayers();
+    activeArrows = [];
+}
+
+// Track last shown event to avoid repeats
+let lastShownMigration = null;
+
+function checkMigrations(year) {
+    if (typeof MIGRATION_EVENTS === 'undefined') return;
+    MIGRATION_EVENTS.forEach(evt => {
+        if (Math.abs(evt.year - year) <= 1 && lastShownMigration !== evt.year + evt.label) {
+            lastShownMigration = evt.year + evt.label;
+            showMigrationArrow(evt);
+        }
+    });
+}
+
+// Hook into updateMap
+const _prevUpdateMap = updateMap;
+updateMap = function(index) {
+    _prevUpdateMap(index);
+    const year = TIME_PERIODS[index];
+    checkMigrations(year);
+};
+
 // Data source toggle
 document.getElementById('dataSourceToggle').addEventListener('click', (e) => {
     e.stopPropagation();
