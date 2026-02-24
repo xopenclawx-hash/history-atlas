@@ -34,16 +34,16 @@ function yearLabel(y) {
 
 // ===== COLOR SCALE — Discrete bins matching legend exactly =====
 const POP_BINS = [
-    { max: 0,        color: '#0f172a', opacity: 0.03, label: 'No data' },
-    { max: 1e4,      color: '#1a3a4a', opacity: 0.25, label: '0' },
-    { max: 1e5,      color: '#1a5c6a', opacity: 0.35, label: '100K' },
-    { max: 1e6,      color: '#1a7a7a', opacity: 0.45, label: '1M' },
-    { max: 1e7,      color: '#20998a', opacity: 0.55, label: '10M' },
-    { max: 3e7,      color: '#2ab89a', opacity: 0.60, label: '30M' },
-    { max: 1e8,      color: '#38d4a8', opacity: 0.65, label: '100M' },
-    { max: 3e8,      color: '#18a0b8', opacity: 0.70, label: '300M' },
-    { max: 1e9,      color: '#1878a8', opacity: 0.75, label: '1B' },
-    { max: Infinity,  color: '#0e4878', opacity: 0.85, label: '>1B' },
+    { max: 0,         color: '#0f172a', opacity: 0.03, label: 'No data', labelZh: '无数据' },
+    { max: 1e4,       color: '#162230', opacity: 0.30, label: '0',       labelZh: '0' },
+    { max: 1e5,       color: '#1a3848', opacity: 0.40, label: '100K',    labelZh: '10万' },
+    { max: 1e6,       color: '#1c5566', opacity: 0.50, label: '1M',      labelZh: '100万' },
+    { max: 1e7,       color: '#1e7580', opacity: 0.58, label: '10M',     labelZh: '1千万' },
+    { max: 3e7,       color: '#229688', opacity: 0.65, label: '30M',     labelZh: '3千万' },
+    { max: 1e8,       color: '#2cb890', opacity: 0.72, label: '100M',    labelZh: '1亿' },
+    { max: 3e8,       color: '#3cd898', opacity: 0.78, label: '300M',    labelZh: '3亿' },
+    { max: 1e9,       color: '#52f0a0', opacity: 0.82, label: '1B',      labelZh: '10亿' },
+    { max: Infinity,  color: '#7affc0', opacity: 0.88, label: '>1B',     labelZh: '>10亿' },
 ];
 
 function getPopColor(pop) {
@@ -425,18 +425,21 @@ playBtn.addEventListener('click', () => {
 });
 
 // ===== BUILD LEGEND =====
-(function buildLegend() {
+function buildLegend() {
     const legend = document.getElementById('colorLegend');
     let html = '';
     // "No data" hatched block
-    html += '<div class="legend-item"><div class="legend-block legend-hatched"></div><span>No data</span></div>';
+    const ndLabel = currentLang === 'zh' ? '无数据' : 'No data';
+    html += `<div class="legend-item"><div class="legend-block legend-hatched"></div><span>${ndLabel}</span></div>`;
     // Colored blocks for each bin (skip index 0 = no data)
     for (let i = 1; i < POP_BINS.length; i++) {
         const b = POP_BINS[i];
-        html += `<div class="legend-item" data-bin="${i}"><div class="legend-block" style="background:${b.color};opacity:${b.opacity}"></div><span>${b.label}</span></div>`;
+        const lbl = currentLang === 'zh' ? b.labelZh : b.label;
+        html += `<div class="legend-item" data-bin="${i}"><div class="legend-block" style="background:${b.color};opacity:${b.opacity}"></div><span>${lbl}</span></div>`;
     }
     legend.innerHTML = html;
-})();
+}
+buildLegend();
 
 // Highlight legend bin on hover
 function highlightLegendBin(binIdx) {
@@ -464,6 +467,8 @@ function applyLanguage() {
     statsToggleBtn.textContent = statsVisible ? t('hide') : t('show');
     // Update logo
     document.querySelector('.logo').innerHTML = t('title') + ' <span>' + t('titleBold') + '</span>';
+    // Rebuild legend with localized labels
+    buildLegend();
     // Rebind tooltips with new language
     if (geoLayer) {
         geoLayer.eachLayer(l => {
