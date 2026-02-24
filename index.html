@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>History Atlas</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="styles.css?v=12">
+    <link rel="stylesheet" href="styles.css?v=13">
 </head>
 <body>
     <!-- Top Bar -->
@@ -37,7 +37,7 @@
         </svg>
     </button>
 
-    <!-- Info Panel (right side, fixed height) -->
+    <!-- Info Panel (right side) -->
     <div class="info-panel" id="infoPanel">
         <button class="info-close" id="infoPanelClose">&times;</button>
         <div class="info-scroll">
@@ -72,7 +72,10 @@
         </div>
     </div>
 
-    <!-- Stats Panel (bottom-right, toggleable) -->
+    <!-- Stats Panel Show/Hide Button -->
+    <button class="stats-show-btn" id="statsToggleBtn">Hide</button>
+
+    <!-- Stats Panel (bottom-right, fixed height) -->
     <div class="stats-panel" id="statsPanel">
         <div class="stats-header-row">
             <div class="stats-header">
@@ -82,7 +85,11 @@
                     <span class="stats-pop-value" id="populationDisplay">~6.6M</span>
                 </div>
             </div>
-            <button class="stats-toggle" id="statsPanelToggle" title="Toggle stats">&#9660;</button>
+        </div>
+        <!-- Data Layer Tabs -->
+        <div class="layer-tabs">
+            <button class="layer-tab active" data-layer="population">Population</button>
+            <button class="layer-tab" data-layer="gdp">GDP</button>
         </div>
         <div class="stats-body">
             <div class="stats-scale" id="dotScale">1 dot = 20K</div>
@@ -101,9 +108,8 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="countries-data.js?v=12"></script>
-    <script src="population-centers.js?v=12"></script>
-    <script src="data.js?v=12"></script>
-    <script src="app.js?v=12"></script>
+    <script src="countries-data.js?v=13"></script>
+    <script src="population-centers.js?v=13"></script>
+    <script src="app.js?v=13"></script>
 </body>
 </html>

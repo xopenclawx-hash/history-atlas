@@ -15,10 +15,31 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png'
     maxZoom: 8, minZoom: 2, subdomains: 'abcd'
 }).addTo(map);
 
-const labelsLayer = L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_only_labels/{z}/{x}/{y}{r}.png', {
+L.tileLayer('https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_only_labels/{z}/{x}/{y}{r}.png', {
     maxZoom: 8, minZoom: 2, subdomains: 'abcd'
-});
-labelsLayer.addTo(map);
+}).addTo(map);
+
+// ===== DATA: Build timeline from POPULATION_CENTERS =====
+const TIME_PERIODS = Object.keys(POPULATION_CENTERS)
+    .map(k => parseInt(k))
+    .sort((a, b) => a - b);
+
+function yearLabel(y) {
+    if (y < 0) return Math.abs(y) + ' BC';
+    if (y === 1) return '1 AD';
+    return y + ' AD';
+}
+
+function eraName(y) {
+    if (y <= -2000) return 'Bronze Age';
+    if (y <= -500) return 'Iron Age';
+    if (y <= 500) return 'Classical Era';
+    if (y <= 1400) return 'Medieval';
+    if (y <= 1700) return 'Early Modern';
+    if (y <= 1850) return 'Industrial Revolution';
+    if (y <= 1945) return 'Modern Era';
+    return 'Contemporary';
+}
 
 // ===== CONTINENT COLORS =====
 const CONTINENT_COLORS = {
@@ -87,44 +108,40 @@ function showInfoPanel(props) {
     document.getElementById('infoEconomy').textContent = props.ECONOMY || '--';
     updateInfoHistorical(props);
     panel.classList.add('open');
-    // Also show the toggle button
     document.getElementById('infoPanelToggle').style.display = 'none';
 }
 
 function updateInfoHistorical(props) {
-    const data = historicalData[currentIndex];
-    const countryName = props.NAME || props.ADMIN;
-    // Find closest population center to this country
-    // Use the GeoJSON centroid or country name matching
+    const year = TIME_PERIODS[currentIndex];
+    const centers = POPULATION_CENTERS[String(year)] || [];
     const bounds = selectedLayer ? selectedLayer.getBounds() : null;
     let totalPop = 0;
     let matchedCenters = [];
-    
+
     if (bounds) {
         const cLat = bounds.getCenter().lat;
         const cLng = bounds.getCenter().lng;
         const latSpan = Math.max(2, (bounds.getNorth() - bounds.getSouth()) * 0.6);
         const lngSpan = Math.max(2, (bounds.getEast() - bounds.getWest()) * 0.6);
-        
-        data.regions.forEach(r => {
-            const dlat = Math.abs(r.lat - cLat);
-            const dlng = Math.abs(r.lng - cLng);
+
+        centers.forEach(c => {
+            const dlat = Math.abs(c.lat - cLat);
+            const dlng = Math.abs(c.lng - cLng);
             if (dlat < latSpan && dlng < lngSpan) {
-                totalPop += r.population;
-                matchedCenters.push(r);
+                totalPop += c.pop;
+                matchedCenters.push(c);
             }
         });
     }
-    
-    document.getElementById('infoHistYear').textContent = data.label;
+
+    document.getElementById('infoHistYear').textContent = yearLabel(year);
     document.getElementById('infoHistPop').textContent = totalPop > 0 ? formatPop(totalPop) : 'No data';
-    
-    // Show matched centers breakdown
+
     const breakdown = document.getElementById('infoHistBreakdown');
-    if (matchedCenters.length > 0 && matchedCenters.length <= 20) {
+    if (matchedCenters.length > 0 && matchedCenters.length <= 30) {
         breakdown.innerHTML = matchedCenters
-            .sort((a, b) => b.population - a.population)
-            .map(c => `<div class="info-breakdown-item"><span>${c.name}</span><span>${formatPop(c.population)}</span></div>`)
+            .sort((a, b) => b.pop - a.pop)
+            .map(c => `<div class="info-breakdown-item"><span>${c.name}</span><span>${formatPop(c.pop)}</span></div>`)
             .join('');
     } else {
         breakdown.innerHTML = '';
@@ -151,7 +168,7 @@ document.getElementById('infoPanelToggle').addEventListener('click', () => {
 map.on('click', () => closeInfoPanel());
 
 // Load GeoJSON
-fetch('countries.geojson?v=12')
+fetch('countries.geojson?v=13')
     .then(r => r.json())
     .then(data => {
         countryFeatures = data.features;
@@ -179,7 +196,7 @@ fetch('countries.geojson?v=12')
         });
     });
 
-// ===== SEARCH (supports Chinese via countries-data.js if loaded) =====
+// ===== SEARCH =====
 const searchInput = document.getElementById('searchInput');
 const searchResults = document.getElementById('searchResults');
 
@@ -191,7 +208,6 @@ searchInput.addEventListener('input', function() {
         const name = (f.properties.NAME || '').toLowerCase();
         const admin = (f.properties.ADMIN || '').toLowerCase();
         if (name.includes(q) || admin.includes(q)) return true;
-        // Chinese name search (if COUNTRY_DATA available)
         if (typeof COUNTRY_DATA !== 'undefined') {
             const iso = f.properties.ISO_A3;
             const cd = COUNTRY_DATA[iso];
@@ -262,7 +278,6 @@ function getDotColor(ratio) {
     return '#22d3ee';
 }
 
-// Spread based on population — large centers get tighter clusters
 function getSpread(pop) {
     if (pop > 10e6) return 1.0;
     if (pop > 1e6) return 1.5;
@@ -270,18 +285,18 @@ function getSpread(pop) {
     return 2.5;
 }
 
-function generateDots(region, numDots, seed) {
+function generateDots(center, numDots, seed) {
     const dots = [];
-    const spread = getSpread(region.population);
+    const spread = getSpread(center.pop);
     for (let i = 0; i < numDots; i++) {
-        const s = seed + i * 7 + (region.name || '').length;
+        const s = seed + i * 7 + (center.name || '').length;
         const r1 = seededRandom(s);
         const r2 = seededRandom(s + 1000);
         const angle = r1 * Math.PI * 2;
         const dist = Math.sqrt(-2 * Math.log(Math.max(0.001, r2))) * spread * 0.4;
         dots.push([
-            region.lat + Math.cos(angle) * dist,
-            region.lng + Math.sin(angle) * dist * 1.3
+            center.lat + Math.cos(angle) * dist,
+            center.lng + Math.sin(angle) * dist * 1.3
         ]);
     }
     return dots;
@@ -298,40 +313,44 @@ function getDotsPerPerson(totalPop) {
 function updateMap(index) {
     clearDots();
     currentIndex = index;
-    const data = historicalData[index];
 
-    document.getElementById('yearDisplay').textContent = data.label;
-    document.getElementById('eraDisplay').textContent = data.era;
-    const total = data.regions.reduce((s, r) => s + r.population, 0);
+    const year = TIME_PERIODS[index];
+    const centers = POPULATION_CENTERS[String(year)] || [];
+
+    // Update header
+    document.getElementById('yearDisplay').textContent = yearLabel(year);
+    document.getElementById('eraDisplay').textContent = eraName(year);
+
+    const total = centers.reduce((s, c) => s + c.pop, 0);
     document.getElementById('populationDisplay').textContent = '~' + formatPop(total);
 
-    const maxPop = Math.max(...data.regions.map(r => r.population));
-    const sorted = [...data.regions].sort((a, b) => b.population - a.population);
+    const maxPop = Math.max(...centers.map(c => c.pop));
+    const sorted = [...centers].sort((a, b) => b.pop - a.pop);
 
-    // Top 30 for stats panel
+    // Stats panel — top 30
     const top = sorted.slice(0, 30);
     const regionStats = document.getElementById('regionStats');
-    regionStats.innerHTML = top.map(r => {
-        const pct = (r.population / maxPop * 100).toFixed(0);
+    regionStats.innerHTML = top.map(c => {
+        const pct = (c.pop / maxPop * 100).toFixed(0);
         return `<div class="region-item">
             <div>
-                <div class="region-name" title="${r.name}">${r.name}</div>
+                <div class="region-name" title="${c.name}">${c.name}</div>
                 <div class="region-bar"><div class="region-bar-fill" style="width:${pct}%"></div></div>
             </div>
-            <div class="region-pop">${formatPop(r.population)}</div>
+            <div class="region-pop">${formatPop(c.pop)}</div>
         </div>`;
     }).join('');
 
-    // Dots
+    // Generate dots
     const popPerDot = getDotsPerPerson(total);
-    const seed = data.year + 10000;
+    const seed = year + 10000;
     document.getElementById('dotScale').textContent = '1 dot = ' + formatPop(popPerDot);
 
-    data.regions.forEach(r => {
-        const ratio = r.population / maxPop;
+    centers.forEach(c => {
+        const ratio = c.pop / maxPop;
         const color = getDotColor(ratio);
-        const numDots = Math.max(1, Math.round(r.population / popPerDot));
-        const dots = generateDots(r, numDots, seed);
+        const numDots = Math.max(1, Math.round(c.pop / popPerDot));
+        const dots = generateDots(c, numDots, seed);
         dots.forEach(([lat, lng]) => {
             const dot = L.circleMarker([lat, lng], {
                 radius: 2, fillColor: color, color: color,
@@ -348,13 +367,37 @@ function updateMap(index) {
     }
 }
 
-// ===== STATS PANEL TOGGLE =====
-let statsPanelVisible = true;
-document.getElementById('statsPanelToggle').addEventListener('click', () => {
-    const panel = document.getElementById('statsPanel');
-    statsPanelVisible = !statsPanelVisible;
-    panel.classList.toggle('collapsed', !statsPanelVisible);
-    document.getElementById('statsPanelToggle').textContent = statsPanelVisible ? '▼' : '▲';
+// ===== STATS PANEL: SHOW/HIDE + DATA LAYER TABS =====
+const statsPanel = document.getElementById('statsPanel');
+const statsToggleBtn = document.getElementById('statsToggleBtn');
+let statsVisible = true;
+
+// Show/Hide button
+statsToggleBtn.addEventListener('click', () => {
+    statsVisible = !statsVisible;
+    statsPanel.classList.toggle('hidden', !statsVisible);
+    statsToggleBtn.textContent = statsVisible ? 'Hide' : 'Stats';
+});
+
+// Data layer tabs
+const layerTabs = document.querySelectorAll('.layer-tab');
+let activeLayer = 'population';
+
+layerTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+        layerTabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        activeLayer = tab.dataset.layer;
+        // For now only population works; GDP etc. coming later
+        if (activeLayer === 'population') {
+            updateMap(currentIndex);
+        } else {
+            // Placeholder: clear dots, show "Coming soon"
+            clearDots();
+            document.getElementById('regionStats').innerHTML =
+                '<div style="color:#475569;padding:20px 0;text-align:center;">Coming soon</div>';
+        }
+    });
 });
 
 // ===== TIMELINE =====
@@ -363,14 +406,14 @@ const sliderLabel = document.getElementById('sliderYearLabel');
 
 function sliderToIndex(val) {
     const pct = val / 1000;
-    return Math.max(0, Math.min(historicalData.length - 1, Math.round(pct * (historicalData.length - 1))));
+    return Math.max(0, Math.min(TIME_PERIODS.length - 1, Math.round(pct * (TIME_PERIODS.length - 1))));
 }
 
 slider.addEventListener('input', (e) => {
     const idx = sliderToIndex(parseInt(e.target.value));
     if (idx !== currentIndex) updateMap(idx);
     sliderLabel.style.opacity = '1';
-    sliderLabel.textContent = historicalData[idx].label;
+    sliderLabel.textContent = yearLabel(TIME_PERIODS[idx]);
     const rect = slider.getBoundingClientRect();
     const pct = parseInt(e.target.value) / 1000;
     sliderLabel.style.left = (rect.left + pct * rect.width) + 'px';
@@ -379,16 +422,16 @@ slider.addEventListener('input', (e) => {
 slider.addEventListener('mouseup', () => setTimeout(() => sliderLabel.style.opacity = '0', 1000));
 slider.addEventListener('touchend', () => setTimeout(() => sliderLabel.style.opacity = '0', 1000));
 
-// Keyboard
+// Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
     if (e.target === searchInput) return;
     if (e.key === 'ArrowLeft' && currentIndex > 0) {
         currentIndex--;
-        slider.value = (currentIndex / (historicalData.length - 1)) * 1000;
+        slider.value = (currentIndex / (TIME_PERIODS.length - 1)) * 1000;
         updateMap(currentIndex);
-    } else if (e.key === 'ArrowRight' && currentIndex < historicalData.length - 1) {
+    } else if (e.key === 'ArrowRight' && currentIndex < TIME_PERIODS.length - 1) {
         currentIndex++;
-        slider.value = (currentIndex / (historicalData.length - 1)) * 1000;
+        slider.value = (currentIndex / (TIME_PERIODS.length - 1)) * 1000;
         updateMap(currentIndex);
     } else if (e.key === 'Escape') {
         closeInfoPanel();
@@ -406,9 +449,9 @@ document.addEventListener('keydown', (e) => {
             autoPlayInterval = null;
         } else {
             autoPlayInterval = setInterval(() => {
-                if (currentIndex < historicalData.length - 1) {
+                if (currentIndex < TIME_PERIODS.length - 1) {
                     currentIndex++;
-                    slider.value = (currentIndex / (historicalData.length - 1)) * 1000;
+                    slider.value = (currentIndex / (TIME_PERIODS.length - 1)) * 1000;
                     updateMap(currentIndex);
                 } else {
                     clearInterval(autoPlayInterval);
@@ -419,5 +462,5 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Init
+// ===== INIT =====
 updateMap(0);
