@@ -1111,8 +1111,10 @@ let lastShownMigration = null;
 
 function checkMigrations(year) {
     if (typeof MIGRATION_EVENTS === 'undefined') return;
+    // Find the previous year in timeline to define a range
+    const prevYear = currentIndex > 0 ? TIME_PERIODS[currentIndex - 1] : year - 100;
     MIGRATION_EVENTS.forEach(evt => {
-        if (Math.abs(evt.year - year) <= 1 && lastShownMigration !== evt.year + evt.label) {
+        if (evt.year > prevYear && evt.year <= year && lastShownMigration !== evt.year + evt.label) {
             lastShownMigration = evt.year + evt.label;
             showMigrationArrow(evt);
         }
