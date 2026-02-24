@@ -804,6 +804,7 @@ function buildTimelineDots() {
         dot.className = 'timeline-dot';
         dot.style.left = pct + '%';
         dot.style.backgroundColor = EVENT_COLORS[evt.type] || '#38bdf8';
+        dot.style.boxShadow = '0 0 4px ' + (EVENT_COLORS[evt.type] || '#38bdf8');
         const tip = document.createElement('div');
         tip.className = 'timeline-dot-tooltip';
         tip.textContent = (currentLang === 'zh' ? evt.titleZh : evt.title) + ' (' + yearLabel(evt.year) + ')';
