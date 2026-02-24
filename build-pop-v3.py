@@ -348,6 +348,61 @@ def get_weights(iso3, year, n_centers):
         return w_b  # Fallback
     return [a + (b - a) * t for a, b in zip(w_a, w_b)]
 
+import random as _random
+
+def subdivide_center(lat, lng, pop, name, max_per_center=5000000):
+    """
+    If a center has too much population, split it into a cluster of sub-centers.
+    This creates realistic distributed population instead of one giant point.
+    Core city gets ~30%, surrounding area gets the rest spread in a ring.
+    """
+    if pop <= max_per_center:
+        return [{"lat": lat, "lng": lng, "pop": pop, "name": name}]
+    
+    results = []
+    # Core city: 30% of pop, capped at max_per_center
+    core_pop = min(int(pop * 0.3), max_per_center)
+    results.append({"lat": lat, "lng": lng, "pop": core_pop, "name": name})
+    
+    remaining = pop - core_pop
+    # How many sub-centers? roughly one per max_per_center
+    n_subs = max(4, int(remaining / max_per_center) + 1)
+    n_subs = min(n_subs, 30)  # cap to avoid too many
+    
+    sub_pop = remaining // n_subs
+    
+    # Spread radius scales with total population
+    if pop > 100e6:
+        radius = 3.0  # degrees
+    elif pop > 50e6:
+        radius = 2.5
+    elif pop > 20e6:
+        radius = 2.0
+    elif pop > 10e6:
+        radius = 1.5
+    else:
+        radius = 1.0
+    
+    # Use deterministic seed based on name + pop
+    rng = _random.Random(hash(name) + pop)
+    
+    lat_factor = math.cos(math.radians(lat))
+    lng_radius = radius / max(lat_factor, 0.3)
+    
+    for j in range(n_subs):
+        angle = (j / n_subs) * 2 * math.pi + rng.random() * 0.5
+        dist = (0.3 + rng.random() * 0.7) * radius
+        sub_lat = lat + math.cos(angle) * dist
+        sub_lng = lng + math.sin(angle) * dist * (lng_radius / radius)
+        results.append({
+            "lat": round(sub_lat, 2),
+            "lng": round(sub_lng, 2),
+            "pop": sub_pop,
+            "name": name + " region"
+        })
+    
+    return results
+
 def build_era(year, country_pops):
     """Convert {ISO3: population} to list of population centers."""
     centers = []
@@ -371,7 +426,9 @@ def build_era(year, country_pops):
                 break
             p = int(pop * weights[i])
             if p > 0:
-                centers.append({"lat": lat, "lng": lng, "pop": p, "name": name})
+                # Subdivide large centers into realistic clusters
+                sub_centers = subdivide_center(lat, lng, p, name)
+                centers.extend(sub_centers)
     return centers
 
 
