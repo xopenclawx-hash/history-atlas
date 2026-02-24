@@ -452,10 +452,16 @@ document.querySelectorAll('.stats-tab').forEach(tab => {
 const statsPanel = document.getElementById('statsPanel');
 const statsToggleBtn = document.getElementById('statsToggleBtn');
 let statsVisible = true;
+const statsShowBtn = document.getElementById('statsShowBtn');
 statsToggleBtn.addEventListener('click', () => {
-    statsVisible = !statsVisible;
-    statsPanel.classList.toggle('hidden', !statsVisible);
-    statsToggleBtn.textContent = statsVisible ? t('hide') : t('show');
+    statsVisible = false;
+    statsPanel.classList.add('hidden');
+    statsShowBtn.style.display = 'block';
+});
+statsShowBtn.addEventListener('click', () => {
+    statsVisible = true;
+    statsPanel.classList.remove('hidden');
+    statsShowBtn.style.display = 'none';
 });
 
 // ===== TIMELINE =====

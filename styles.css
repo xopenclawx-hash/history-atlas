@@ -43,6 +43,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .stats-body::-webkit-scrollbar { width: 4px; }
 .stats-body::-webkit-scrollbar-track { background: transparent; }
 .stats-body::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 2px; }
+.stats-show-btn { position: fixed; top: 70px; right: 16px; z-index: 500; background: rgba(15,23,42,0.85); border: 1px solid rgba(255,255,255,0.08); color: #94a3b8; font-size: 18px; padding: 6px 10px; border-radius: 6px; cursor: pointer; backdrop-filter: blur(8px); }
+.stats-show-btn:hover { color: #e2e8f0; background: rgba(30,41,59,0.9); }
 .stats-toggle { padding: 8px; background: none; border: none; border-top: 1px solid rgba(255,255,255,0.06); color: #475569; cursor: pointer; font-size: 10px; letter-spacing: 1px; }
 .stats-toggle:hover { color: #94a3b8; }
 
