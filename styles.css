@@ -268,3 +268,9 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
 .battle-btn { display: block; width: 100%; padding: 8px; background: linear-gradient(135deg, #1e3a8a 0%, #7f1d1d 100%); color: #fff; border: none; border-radius: 6px; font-size: 11px; font-weight: 600; letter-spacing: 1.5px; cursor: pointer; margin: 6px 0; transition: all 0.2s; font-family: Inter, -apple-system, sans-serif; }
 .battle-btn:hover { opacity: 0.9; transform: scale(1.01); }
 .battle-btn:active { transform: scale(0.99); }
+
+.tooltip-value { font-variant-numeric: tabular-nums; }
+
+.stats-row:nth-child(1) .stats-rank { color: #fbbf24; }
+.stats-row:nth-child(2) .stats-rank { color: #94a3b8; }
+.stats-row:nth-child(3) .stats-rank { color: #b45309; }

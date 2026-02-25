@@ -283,6 +283,13 @@ class BattleSimulation {
     }
     
     draw(progress) {
+        // Screen shake during combat
+        if (this.phase === 2 && this.tick % 8 < 4) {
+            this.ctx.save();
+            const shakeX = (Math.random() - 0.5) * 2;
+            const shakeY = (Math.random() - 0.5) * 2;
+            this.ctx.translate(shakeX, shakeY);
+        }
         const ctx = this.ctx;
         ctx.clearRect(0, 0, this.w, this.h);
         
@@ -315,6 +322,9 @@ class BattleSimulation {
             ctx.fill();
             ctx.globalAlpha = 1;
         });
+        
+        // Reset shake
+        if (this.phase === 2) { this.ctx.restore(); }
         
         // Phase label
         const phaseNames = {
@@ -392,11 +402,10 @@ class BattleSimulation {
                 ctx.fill();
             }
             
-            // Unit body
-            ctx.beginPath();
+            // Unit body (square = infantry)
             ctx.fillStyle = hpRatio > 0.5 ? colors.primary : colors.light;
-            ctx.arc(u.x, u.y, u.size, 0, Math.PI * 2);
-            ctx.fill();
+            const s = u.size;
+            ctx.fillRect(u.x - s, u.y - s, s * 2, s * 2);
             
             // HP bar (only during combat)
             if (this.phase >= 2 && hpRatio < 1) {
