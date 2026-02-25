@@ -1078,14 +1078,16 @@ playBtn.addEventListener('click', function(e) {
 // Make autoplay smoother by reducing interval
 const _origPlayBtn = playBtn.cloneNode(true);
 
-// ===== ANIMATED MIGRATION SHIPS =====
-let activeShips = [];
+// ===== MIGRATION ANIMATIONS (one at a time) =====
 const shipLayer = L.layerGroup().addTo(map);
+let migQueue = [];
+let migPlaying = false;
+let shownMigrations = new Set();
 
 function getArcPoints(from, to, steps) {
     const pts = [];
-    const dist = Math.abs(to[1] - from[1]);
-    const arcH = dist > 100 ? 18 : dist > 50 ? 12 : 6;
+    const dist = Math.sqrt(Math.pow(to[1]-from[1],2) + Math.pow(to[0]-from[0],2));
+    const arcH = dist > 80 ? 15 : dist > 40 ? 10 : 5;
     const midLat = (from[0] + to[0]) / 2 + arcH;
     const midLng = (from[1] + to[1]) / 2;
     for (let i = 0; i <= steps; i++) {
@@ -1097,22 +1099,29 @@ function getArcPoints(from, to, steps) {
     return pts;
 }
 
-function showMigrationShip(evt) {
-    const points = getArcPoints(evt.from, evt.to, 60);
+function playNextMigration() {
+    if (migQueue.length === 0) { migPlaying = false; return; }
+    migPlaying = true;
+    const evt = migQueue.shift();
+    
+    // Clear previous
+    shipLayer.clearLayers();
+    
+    const points = getArcPoints(evt.from, evt.to, 50);
     const icon = evt.icon || '⛵';
     const label = currentLang === 'zh' ? evt.labelZh : evt.label;
     
-    // Glowing trail — layered for depth
+    // Soft glow trail
     const trailGlow = L.polyline([], {
-        color: 'rgba(56,189,248,0.06)', weight: 8,
+        color: 'rgba(56,189,248,0.05)', weight: 10,
         lineCap: 'round', lineJoin: 'round', pane: 'markerPane'
     }).addTo(shipLayer);
     const trail = L.polyline([], {
-        color: 'rgba(56,189,248,0.2)', weight: 1.5,
-        dashArray: '6,8', lineCap: 'round', pane: 'markerPane'
+        color: 'rgba(56,189,248,0.18)', weight: 1.5,
+        dashArray: '5,7', lineCap: 'round', pane: 'markerPane'
     }).addTo(shipLayer);
     
-    // Ship icon as DivIcon marker
+    // Moving icon
     const shipIcon = L.divIcon({
         html: `<div class="ship-marker">${icon}</div>`,
         iconSize: [28, 28], iconAnchor: [14, 14],
@@ -1120,27 +1129,27 @@ function showMigrationShip(evt) {
     });
     const ship = L.marker(evt.from, { icon: shipIcon, pane: 'markerPane', zIndexOffset: 1000 }).addTo(shipLayer);
     
-    // Animate ship along path
+    // Info card (bottom-left)
+    const cardEl = document.getElementById('migCard');
+    const cardLabel = document.getElementById('migCardLabel');
+    const cardYear = document.getElementById('migCardYear');
+    if (cardEl) {
+        cardLabel.textContent = label;
+        cardYear.textContent = yearLabel(evt.year);
+        cardEl.classList.add('visible');
+    }
+    
     let step = 0;
     const trailPts = [];
     const interval = setInterval(() => {
         if (step >= points.length) {
             clearInterval(interval);
-            // Show label at destination
-            const tipIcon = L.divIcon({
-                html: `<div class="ship-label">${label}</div>`,
-                iconSize: [160, 24], iconAnchor: [80, -6],
-                className: 'ship-label-wrapper'
-            });
-            const tip = L.marker(evt.to, { icon: tipIcon, pane: 'markerPane', zIndexOffset: 1001 }).addTo(shipLayer);
-            
-            // Fade out after 5s
+            // Hold for 2.5s then fade out and play next
             setTimeout(() => {
-                shipLayer.removeLayer(trailGlow);
-                shipLayer.removeLayer(trail);
-                shipLayer.removeLayer(ship);
-                shipLayer.removeLayer(tip);
-            }, 5000);
+                shipLayer.clearLayers();
+                if (cardEl) cardEl.classList.remove('visible');
+                setTimeout(() => playNextMigration(), 300);
+            }, 2500);
             return;
         }
         ship.setLatLng(points[step]);
@@ -1148,34 +1157,33 @@ function showMigrationShip(evt) {
         trail.setLatLngs(trailPts);
         trailGlow.setLatLngs(trailPts);
         step++;
-    }, 45);
-    
-    activeShips.push({ interval });
+    }, 40);
 }
 
-function clearShips() {
-    activeShips.forEach(a => { if (a.interval) clearInterval(a.interval); });
-    shipLayer.clearLayers();
-    activeShips = [];
+function queueMigration(evt) {
+    const key = evt.year + '|' + evt.label;
+    if (shownMigrations.has(key)) return;
+    shownMigrations.add(key);
+    migQueue.push(evt);
+    if (!migPlaying) playNextMigration();
 }
-
-// Track last shown event to avoid repeats
-let lastShownMigration = null;
 
 function checkMigrations(year) {
     if (typeof MIGRATION_EVENTS === 'undefined') return;
     const prevYear = currentIndex > 0 ? TIME_PERIODS[currentIndex - 1] : year - 100;
     MIGRATION_EVENTS.forEach(evt => {
-        if (evt.year > prevYear && evt.year <= year && lastShownMigration !== evt.year + evt.label) {
-            lastShownMigration = evt.year + evt.label;
-            showMigrationShip(evt);
+        if (evt.year > prevYear && evt.year <= year) {
+            queueMigration(evt);
         }
     });
 }
 
-// Migration hooks disabled for now
-// const _prevUpdateMap = updateMap;
-// updateMap = function(index) { _prevUpdateMap(index); checkMigrations(TIME_PERIODS[index]); };
+// Hook into updateMap
+const _prevUpdateMap = updateMap;
+updateMap = function(index) {
+    _prevUpdateMap(index);
+    checkMigrations(TIME_PERIODS[index]);
+};
 
 // Data source toggle
 document.getElementById('dataSourceToggle').addEventListener('click', (e) => {
