@@ -68,6 +68,22 @@ class MapBattle {
         if (this.battleLng > 180) this.battleLng -= 360;
         if (this.battleLng < -180) this.battleLng += 360;
         
+        // Detect if countries are neighbors (close centroids)
+        const dist = Math.sqrt(
+            (this.posL.lat - this.posR.lat)**2 + 
+            Math.min(Math.abs(this.posL.lng - this.posR.lng), 360 - Math.abs(this.posL.lng - this.posR.lng))**2
+        );
+        this.isNeighbor = dist < 25; // ~25 degrees = adjacent countries
+        
+        // For neighbors, battle at border (70/30 toward weaker side)
+        if (this.isNeighbor) {
+            const weakBias = this.ratioL > this.ratioR ? 0.55 : 0.45;
+            this.battleLat = this.posL.lat + (this.posR.lat - this.posL.lat) * weakBias;
+            let dLng2 = this.posR.lng - this.posL.lng;
+            if (Math.abs(dLng2) > 180) dLng2 = dLng2 > 0 ? dLng2 - 360 : dLng2 + 360;
+            this.battleLng = this.posL.lng + dLng2 * weakBias;
+        }
+        
         // Calculate force balance
         const L = data.left, R = data.right;
         this.forceL = (L.npi || 0.1) * 60 + (L.gdp || 0) * 0.001 + Math.sqrt(L.pop || 0) * 0.0001;
@@ -153,7 +169,11 @@ class MapBattle {
         const bounds = L.latLngBounds([this.posL, this.posR]);
         this.map.fitBounds(bounds.pad(0.3), { animate: true, duration: 1 });
         
-        // Show info banner
+        // Show march info banner
+        this.updateBanner(
+            typeof currentLang !== 'undefined' && currentLang === 'zh' ? '集结出征' : 'MOBILIZING',
+            '#38bdf8'
+        );
         this.showBanner(
             typeof currentLang !== 'undefined' && currentLang === 'zh' 
                 ? `${getLocalName(this.leftISO)} vs ${getLocalName(this.rightISO)}` 
@@ -525,6 +545,12 @@ function showVsModal() {
                 launchMapBattle(vsModalCountries[0], vsModalCountries[1]);
             }
         });
+        
+        // Add stat preview div
+        const preview = document.createElement('div');
+        preview.id = 'vsModalPreview';
+        preview.style.cssText = 'font-size:10px;color:#64748b;margin:8px 0;min-height:36px;';
+        modal.querySelector('.vs-modal-content').insertBefore(preview, document.getElementById('vsModalGo'));
     }
     
     modal.style.display = 'block';
@@ -573,6 +599,19 @@ function updateVsModal() {
     
     document.getElementById('vsModalYear').textContent = yearLabel(TIME_PERIODS[currentIndex]);
     document.getElementById('vsModalGo').disabled = !(vsModalCountries[0] && vsModalCountries[1]);
+    
+    // Show stat preview
+    const preview = document.getElementById('vsModalPreview');
+    if (preview && vsModalCountries[0] && vsModalCountries[1]) {
+        const fmtPop = typeof formatPopShort !== 'undefined' ? formatPopShort : n => n.toLocaleString();
+        const pL = currentPopData[vsModalCountries[0]] || 0;
+        const pR = currentPopData[vsModalCountries[1]] || 0;
+        const nL = currentNpiData[vsModalCountries[0]] || 0;
+        const nR = currentNpiData[vsModalCountries[1]] || 0;
+        preview.innerHTML = `<span style="color:#3b82f6">${fmtPop(pL)}</span> pop vs <span style="color:#ef4444">${fmtPop(pR)}</span> · <span style="color:#3b82f6">${nL.toFixed(1)}%</span> str vs <span style="color:#ef4444">${nR.toFixed(1)}%</span>`;
+    } else if (preview) {
+        preview.innerHTML = '';
+    }
 }
 
 function closeVsModal() {
