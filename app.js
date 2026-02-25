@@ -331,8 +331,13 @@ function drawSparkline(iso, currentYear, layer) {
     if (!ts || ts.length < 2) { ctx.clearRect(0,0,w,h); return; }
     ctx.clearRect(0, 0, w, h);
     
-    const maxPop = Math.max(...ts.map(d => d[1]));
-    const minYear = ts[0][0], maxYear = ts[ts.length-1][0];
+    // Filter to only show data from YEAR_START onwards
+    const tsFiltered = ts.filter(d => d[0] >= YEAR_START);
+    if (tsFiltered.length < 2) { return; }
+    const ts_ = tsFiltered;
+    
+    const maxPop = Math.max(...ts_.map(d => d[1]));
+    const minYear = ts_[0][0], maxYear = ts_[ts_.length-1][0];
     const yearRange = maxYear - minYear || 1;
     
     // Chart area — generous margins so labels never overlap the chart
@@ -341,7 +346,7 @@ function drawSparkline(iso, currentYear, layer) {
     
     function xPos(year) { return left + ((year - minYear) / yearRange) * chartW; }
     // Sqrt scale — shows ancient values better when modern values dominate
-    const useLog = maxPop > 0 && (maxPop / Math.max(1, Math.min(...ts.map(d=>d[1]).filter(v=>v>0)))) > 50;
+    const useLog = maxPop > 0 && (maxPop / Math.max(1, Math.min(...ts_.map(d=>d[1]).filter(v=>v>0)))) > 50;
     function yPos(pop) {
         if (useLog && pop > 0) return bottom - (Math.sqrt(pop) / Math.sqrt(maxPop)) * chartH;
         return bottom - (pop / maxPop) * chartH;
@@ -356,11 +361,11 @@ function drawSparkline(iso, currentYear, layer) {
     
     // Grid line at current year
     let nearestIdx = 0, nearestDist = Infinity;
-    ts.forEach((d, i) => {
+    ts_.forEach((d, i) => {
         const dist = Math.abs(d[0] - currentYear);
         if (dist < nearestDist) { nearestDist = dist; nearestIdx = i; }
     });
-    const curX = xPos(ts[nearestIdx][0]);
+    const curX = xPos(ts_[nearestIdx][0]);
     ctx.strokeStyle = 'rgba(0,0,0,0.08)';
     ctx.lineWidth = 0.8;
     ctx.setLineDash([2,3]);
@@ -369,9 +374,9 @@ function drawSparkline(iso, currentYear, layer) {
     
     // Area fill
     ctx.beginPath();
-    ctx.moveTo(xPos(ts[0][0]), bottom);
-    ts.forEach(d => ctx.lineTo(xPos(d[0]), yPos(d[1])));
-    ctx.lineTo(xPos(ts[ts.length-1][0]), bottom);
+    ctx.moveTo(xPos(ts_[0][0]), bottom);
+    ts_.forEach(d => ctx.lineTo(xPos(d[0]), yPos(d[1])));
+    ctx.lineTo(xPos(ts_[ts_.length-1][0]), bottom);
     ctx.closePath();
     ctx.fillStyle = fillColor.replace('0.08', '0.06');
     ctx.fill();
@@ -380,14 +385,14 @@ function drawSparkline(iso, currentYear, layer) {
     ctx.beginPath();
     ctx.strokeStyle = lineColor;
     ctx.lineWidth = 1.2;
-    ts.forEach((d, i) => {
+    ts_.forEach((d, i) => {
         const x = xPos(d[0]), y = yPos(d[1]);
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     });
     ctx.stroke();
     
     // Current year dot + value
-    const curD = ts[nearestIdx];
+    const curD = ts_[nearestIdx];
     const cx = xPos(curD[0]), cy = yPos(curD[1]);
     ctx.beginPath();
     ctx.arc(cx, cy, 3, 0, Math.PI * 2);
