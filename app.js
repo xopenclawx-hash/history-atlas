@@ -1171,13 +1171,9 @@ function checkMigrations(year) {
     });
 }
 
-// Hook into updateMap
-const _prevUpdateMap = updateMap;
-updateMap = function(index) {
-    _prevUpdateMap(index);
-    const year = TIME_PERIODS[index];
-    checkMigrations(year);
-};
+// Migration hooks disabled for now
+// const _prevUpdateMap = updateMap;
+// updateMap = function(index) { _prevUpdateMap(index); checkMigrations(TIME_PERIODS[index]); };
 
 // Data source toggle
 document.getElementById('dataSourceToggle').addEventListener('click', (e) => {
