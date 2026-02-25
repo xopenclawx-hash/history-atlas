@@ -350,13 +350,15 @@ function drawSparkline(iso, currentYear, layer) {
     ctx.lineWidth = 1;
     ctx.stroke();
     
-    // Value label near dot
+    // Value label near dot — use correct formatter for layer
     ctx.fillStyle = '#374151';
     ctx.font = 'bold 10px -apple-system, sans-serif';
-    const valLabel = formatPopShort(curD[1]);
-    const valX = cx + 6 > w - 40 ? cx - 6 : cx + 6;
-    ctx.textAlign = cx + 6 > w - 40 ? 'right' : 'left';
-    ctx.fillText(valLabel, valX, cy - 4);
+    const fmtMap = { pop: formatPopShort, gdp: formatGdpShort, npi: formatNpiShort };
+    const valLabel = (fmtMap[layer] || formatPopShort)(curD[1]);
+    // Position label above dot, centered
+    ctx.textAlign = 'center';
+    const labelY = cy - 8 < 12 ? cy + 14 : cy - 8;
+    ctx.fillText(valLabel, cx, labelY);
     
     // Year axis labels (below chart)
     ctx.fillStyle = '#9ca3af';
