@@ -884,13 +884,11 @@ function paintEraStrip() {
 paintEraStrip();
 window.addEventListener('resize', paintEraStrip);
 
-// Hook event detection into updateMap
+// Event banners disabled — cleaner viewing experience
+// Events still shown as timeline dots (hover to see)
 const _origUpdateMap = updateMap;
 updateMap = function(index) {
     _origUpdateMap(index);
-    const year = TIME_PERIODS[index];
-    const evt = findEventForYear(year);
-    if (evt) showEvent(evt);
 };
 
 // Add tab label for gdppc
