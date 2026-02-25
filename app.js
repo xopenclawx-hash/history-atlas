@@ -336,7 +336,7 @@ function drawSparkline(iso, currentYear, layer) {
     const yearRange = maxYear - minYear || 1;
     
     // Chart area with margins for labels
-    const left = 28, right = w - 4, top = 2, bottom = h - 14;
+    const left = 28, right = w - 8, top = 4, bottom = h - 14;
     const chartW = right - left, chartH = bottom - top;
     
     function xPos(year) { return left + ((year - minYear) / yearRange) * chartW; }
@@ -385,20 +385,14 @@ function drawSparkline(iso, currentYear, layer) {
     ctx.lineWidth = 1;
     ctx.stroke();
     
-    // Y-axis max label
+    // Y-axis scale labels (top + bottom)
     ctx.fillStyle = '#9ca3af';
-    ctx.font = '9px -apple-system, sans-serif';
-    ctx.textAlign = 'left';
+    ctx.font = '9px Inter, -apple-system, sans-serif';
     const fmtMap = { pop: formatPopShort, gdp: formatGdpShort, npi: formatNpiShort };
     const fmt = fmtMap[layer] || formatPopShort;
+    ctx.textAlign = 'left';
     ctx.fillText(fmt(maxPop), 0, top + 8);
-    
-    // Value label near dot
-    ctx.fillStyle = '#374151';
-    ctx.font = 'bold 10px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    const labelY = cy - 8 < 12 ? cy + 14 : cy - 8;
-    ctx.fillText(fmt(curD[1]), cx, labelY);
+    ctx.fillText('0', 0, bottom - 1);
     
     // Year axis labels (below chart)
     ctx.fillStyle = '#9ca3af';
