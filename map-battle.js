@@ -2,11 +2,11 @@
 // Battles play out on the actual Leaflet map with armies moving between countries
 
 const MAP_BATTLE = {
-    UNIT_COUNT_BASE: 30,     // base units per side
-    UNIT_SIZE: 4,            // px radius
+    UNIT_COUNT_BASE: 25,     // base units per side
+    UNIT_SIZE: 6,            // px radius
     MARCH_SPEED: 0.003,      // lat/lng per frame
     BATTLE_RADIUS: 2,        // degrees - engagement zone
-    PHASE_MS: { march: 3000, battle: 4000, resolve: 2000 },
+    PHASE_MS: { march: 4000, battle: 5000, resolve: 2500 },
     COLORS: {
         blue: { fill: '#3b82f6', stroke: '#1d4ed8', glow: 'rgba(59,130,246,0.5)' },
         red:  { fill: '#ef4444', stroke: '#b91c1c', glow: 'rgba(239,68,68,0.5)' }
@@ -161,10 +161,10 @@ class MapBattle {
         if (!banner) {
             banner = document.createElement('div');
             banner.id = 'battleBanner';
-            banner.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:1500;background:rgba(10,14,23,0.9);backdrop-filter:blur(12px);padding:12px 28px;border-radius:10px;text-align:center;border:1px solid rgba(255,255,255,0.08);pointer-events:none;transition:opacity 0.5s;';
+            banner.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:1500;background:rgba(10,14,23,0.92);backdrop-filter:blur(16px);padding:14px 32px;border-radius:12px;text-align:center;border:1px solid rgba(255,255,255,0.08);pointer-events:none;transition:opacity 0.5s;box-shadow:0 8px 30px rgba(0,0,0,0.4);';
             document.body.appendChild(banner);
         }
-        banner.innerHTML = `<div style="font-size:16px;font-weight:700;color:#fff;letter-spacing:0.5px;">${title}</div><div style="font-size:11px;color:#64748b;margin-top:2px;">${subtitle}</div>`;
+        banner.innerHTML = `<div style="font-size:18px;font-weight:700;color:#fff;letter-spacing:1px;">${title}</div><div style="font-size:12px;color:#64748b;margin-top:3px;">${subtitle}</div>`;
         banner.style.opacity = '1';
     }
     
@@ -330,19 +330,29 @@ class MapBattle {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, this.w, this.h);
         
-        // Draw march path lines (subtle)
-        if (this.phase === 'march') {
-            ctx.strokeStyle = 'rgba(59,130,246,0.15)';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([4, 6]);
+        // Draw march path lines with animated dashes
+        if (this.phase === 'march' || this.phase === 'battle') {
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 8]);
+            ctx.lineDashOffset = -this.tick * 0.5;
+            
+            // Blue path
+            ctx.strokeStyle = 'rgba(59,130,246,0.25)';
             const fromL = this.latLngToPixel(this.posL.lat, this.posL.lng);
             const toB = this.latLngToPixel(this.battleLat, this.battleLng);
             ctx.beginPath(); ctx.moveTo(fromL.x, fromL.y); ctx.lineTo(toB.x, toB.y); ctx.stroke();
             
-            ctx.strokeStyle = 'rgba(239,68,68,0.15)';
+            // Red path
+            ctx.strokeStyle = 'rgba(239,68,68,0.25)';
             const fromR = this.latLngToPixel(this.posR.lat, this.posR.lng);
             ctx.beginPath(); ctx.moveTo(fromR.x, fromR.y); ctx.lineTo(toB.x, toB.y); ctx.stroke();
             ctx.setLineDash([]);
+            
+            // Battle point marker
+            ctx.beginPath();
+            ctx.fillStyle = 'rgba(251,191,36,0.3)';
+            ctx.arc(toB.x, toB.y, 8 + Math.sin(this.tick * 0.1) * 3, 0, Math.PI * 2);
+            ctx.fill();
         }
         
         // Draw units
@@ -378,21 +388,32 @@ class MapBattle {
             if (u.dead) return;
             const px = this.latLngToPixel(u.lat, u.lng);
             const hpRatio = u.hp / u.maxHp;
+            const s = MAP_BATTLE.UNIT_SIZE;
             
             ctx.globalAlpha = 0.5 + hpRatio * 0.5;
             
-            // Glow during battle
-            if (this.phase === 'battle' && this.tick % 6 < 3) {
-                ctx.fillStyle = colors.glow;
+            // Always show glow for visibility
+            ctx.fillStyle = colors.glow;
+            ctx.beginPath();
+            ctx.arc(px.x, px.y, s + 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Combat flash
+            if (this.phase === 'battle' && this.tick % 4 < 2 && u.hp < u.maxHp) {
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
                 ctx.beginPath();
-                ctx.arc(px.x, px.y, MAP_BATTLE.UNIT_SIZE + 2, 0, Math.PI * 2);
+                ctx.arc(px.x, px.y, s + 5, 0, Math.PI * 2);
                 ctx.fill();
             }
             
-            // Unit body
+            // Unit body (circle for better visibility)
             ctx.fillStyle = hpRatio > 0.4 ? colors.fill : colors.stroke;
-            const s = MAP_BATTLE.UNIT_SIZE;
-            ctx.fillRect(px.x - s/2, px.y - s/2, s, s);
+            ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(px.x, px.y, s, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
             
             ctx.globalAlpha = 1;
         });
@@ -402,13 +423,29 @@ class MapBattle {
         this.running = false;
         if (this.animId) cancelAnimationFrame(this.animId);
         
-        // Show result for 3 seconds then clean up
+        // Add "Battle Again" button
+        let againBtn = document.getElementById('battleAgainBtn');
+        if (!againBtn) {
+            againBtn = document.createElement('button');
+            againBtn.id = 'battleAgainBtn';
+            againBtn.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:1500;background:linear-gradient(135deg,#1e3a8a,#4c1d95,#7f1d1d);color:#fff;border:none;border-radius:10px;padding:10px 28px;font-size:12px;font-weight:700;letter-spacing:2px;cursor:pointer;font-family:Inter,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,0.4);transition:all 0.2s;';
+            againBtn.textContent = 'BATTLE AGAIN';
+            againBtn.addEventListener('click', () => {
+                this.cleanup();
+                againBtn.remove();
+                showVsModal();
+            });
+            document.body.appendChild(againBtn);
+        }
+        
+        // Auto cleanup after 8 seconds
         setTimeout(() => {
             this.cleanup();
+            if (againBtn.parentNode) againBtn.remove();
             if (this.onComplete) {
                 this.onComplete(this.winner, this.ratioL, this.ratioR);
             }
-        }, 3000);
+        }, 8000);
     }
     
     cleanup() {
