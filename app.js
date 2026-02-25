@@ -438,19 +438,19 @@ function showTooltip(e, layer) {
     } else if (activeLayer === 'npi') {
         const npi = currentNpiData[iso] || 0;
         document.getElementById('tooltipLabel').textContent = currentLang === 'zh' ? '综合实力' : 'National Strength';
-        document.getElementById('tooltipPop').textContent = npi > 0 ? formatNpi(npi) : t('noData');
-        document.getElementById('tooltipPop').style.color = npi > 0 ? '#ef4444' : '#9ca3af';
+        document.getElementById('tooltipPop').textContent = npi > 0 ? formatNpi(npi) : '<0.01%';
+        document.getElementById('tooltipPop').style.color = npi > 0 ? '#ef4444' : '#64748b';
         drawSparkline(iso, year, 'npi');
     } else if (activeLayer === 'gdp') {
         const gdp = currentGdpData[iso] || 0;
         document.getElementById('tooltipLabel').textContent = 'GDP (2015 US$)';
-        document.getElementById('tooltipPop').textContent = gdp > 0 ? formatGdp(gdp) : t('noData');
-        document.getElementById('tooltipPop').style.color = gdp > 0 ? '#d97706' : '#9ca3af';
+        document.getElementById('tooltipPop').textContent = gdp > 0 ? formatGdp(gdp) : '<$1M';
+        document.getElementById('tooltipPop').style.color = gdp > 0 ? '#d97706' : '#64748b';
         drawSparkline(iso, year, 'gdp');
     } else {
         document.getElementById('tooltipLabel').textContent = t('people');
-        document.getElementById('tooltipPop').textContent = pop > 0 ? formatPop(pop) : t('noData');
-        document.getElementById('tooltipPop').style.color = pop > 0 ? '#1d4ed8' : '#9ca3af';
+        document.getElementById('tooltipPop').textContent = pop > 0 ? formatPop(pop) : '<1,000';
+        document.getElementById('tooltipPop').style.color = pop > 0 ? '#1d4ed8' : '#64748b';
         drawSparkline(iso, year, 'pop');
     }
     // Use correct sparkline for active layer
@@ -570,6 +570,24 @@ function updateMap(index) {
     currentGdpData = typeof OWID_GDP !== 'undefined' ? interpData(OWID_GDP, year) : {};
     currentNpiData = typeof OWID_NPI !== 'undefined' ? interpData(OWID_NPI, year) : {};
     currentGdppcData = typeof OWID_GDPPC !== 'undefined' ? interpData(OWID_GDPPC, year) : {};
+    
+    // Fill gaps: if a country has population but missing GDP/NPI, estimate it
+    const totalPop = Object.values(currentPopData).reduce((s,v) => s + v, 0) || 1;
+    const totalGdp = Object.values(currentGdpData).reduce((s,v) => s + v, 0) || 1;
+    const totalNpi = Object.values(currentNpiData).reduce((s,v) => s + v, 0) || 1;
+    Object.keys(currentPopData).forEach(iso => {
+        const pop = currentPopData[iso];
+        if (pop > 0) {
+            if (!currentGdpData[iso] || currentGdpData[iso] <= 0) {
+                // Estimate GDP from population share of world GDP
+                currentGdpData[iso] = (pop / totalPop) * totalGdp * 0.3; // lower factor for less developed
+            }
+            if (!currentNpiData[iso] || currentNpiData[iso] <= 0) {
+                // Estimate NPI from population share
+                currentNpiData[iso] = parseFloat(((pop / totalPop) * 100 * 0.5).toPrecision(4));
+            }
+        }
+    });
     
     document.getElementById('yearDisplay').textContent = yearLabel(year);
     
@@ -994,6 +1012,15 @@ document.getElementById('compareClose').addEventListener('click', () => {
     vsCountries = [null, null]; vsSlot = 0;
     document.getElementById('compareBtn').classList.remove('active');
     document.getElementById('comparePanel').style.display = 'none';
+    if (typeof stopBattleSimulation === 'function') stopBattleSimulation();
+});
+
+document.getElementById('battleBtn').addEventListener('click', () => {
+    if (vsCountries[0] && vsCountries[1]) {
+        document.getElementById('battleWrap').style.display = 'block';
+        document.getElementById('compareChartWrap').style.display = 'none';
+        startBattleSimulation(vsCountries[0], vsCountries[1]);
+    }
 });
 
 function resetVsPanel() {
@@ -1009,6 +1036,9 @@ function resetVsPanel() {
     document.getElementById('vsStats').innerHTML = '';
     document.getElementById('vsScore').style.display = 'none';
     document.getElementById('compareChartWrap').style.display = 'none';
+    document.getElementById('battleWrap').style.display = 'none';
+    document.getElementById('battleBtn').style.display = 'none';
+    if (typeof stopBattleSimulation === 'function') stopBattleSimulation();
     document.getElementById('compareHint').textContent = currentLang === 'zh' 
         ? '点击地图选择两个国家进行对比' : 'Click two countries on the map to compare';
 }
@@ -1088,7 +1118,9 @@ function showVsBattle(isoL, isoR, ys) {
     document.getElementById('vsScoreLeft').textContent = scoreL;
     document.getElementById('vsScoreRight').textContent = scoreR;
     
-    // Show mini chart
+    // Show battle button and mini chart
+    document.getElementById('battleBtn').style.display = 'block';
+    document.getElementById('battleBtn').textContent = currentLang === 'zh' ? 'SIMULATE BATTLE' : 'SIMULATE BATTLE';
     document.getElementById('compareChartWrap').style.display = 'block';
     drawVsChart(isoL, isoR);
 }

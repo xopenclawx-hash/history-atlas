@@ -6,7 +6,7 @@
     <title>History Atlas</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap">
-    <link rel="stylesheet" href="styles.css?v=96"/>
+    <link rel="stylesheet" href="styles.css?v=97"/>
 </head>
 <body>
     <!-- Header -->
@@ -116,6 +116,10 @@
             <span class="vs-score-sep">:</span>
             <span class="vs-score-num right" id="vsScoreRight">0</span>
         </div>
+        <div class="battle-wrap" id="battleWrap" style="display:none;">
+            <canvas id="battleCanvas" width="484" height="180"></canvas>
+        </div>
+        <button class="battle-btn" id="battleBtn" style="display:none;">SIMULATE BATTLE</button>
         <div class="compare-body" id="compareChartWrap" style="display:none;">
             <canvas id="compareChart" width="484" height="160"></canvas>
         </div>
@@ -158,12 +162,13 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="owid-data.js?v=96"></script>
-    <script src="owid-gdp.js?v=96"></script>
-    <script src="owid-npi.js?v=96"></script>
-    <script src="events.js?v=96"></script>
-    <script src="migrations.js?v=96"></script>
-    <script src="i18n.js?v=96"></script>
-    <script src="app.js?v=96"></script>
+    <script src="owid-data.js?v=97"></script>
+    <script src="owid-gdp.js?v=97"></script>
+    <script src="owid-npi.js?v=97"></script>
+    <script src="events.js?v=97"></script>
+    <script src="migrations.js?v=97"></script>
+    <script src="i18n.js?v=97"></script>
+    <script src="battle.js?v=97"></script>
+    <script src="app.js?v=97"></script>
 </body>
 </html>
