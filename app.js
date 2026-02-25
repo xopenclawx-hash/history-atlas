@@ -19,8 +19,8 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png'
 // ===== TIME PERIODS =====
 // Sparse data years (for interpolation lookups)
 const DATA_YEARS = Object.keys(OWID_POP).map(Number).sort((a, b) => a - b);
-// Continuous timeline: every year from first to last
-const YEAR_START = DATA_YEARS[0], YEAR_END = DATA_YEARS[DATA_YEARS.length - 1];
+// Continuous timeline: start from year 0 (CE) for cleaner experience
+const YEAR_START = 0, YEAR_END = DATA_YEARS[DATA_YEARS.length - 1];
 const TIME_PERIODS = [];
 for (let y = YEAR_START; y <= YEAR_END; y++) TIME_PERIODS.push(y);
 
