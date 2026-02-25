@@ -17,7 +17,42 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png'
 }).addTo(map);
 
 // ===== TIME PERIODS =====
-const TIME_PERIODS = Object.keys(OWID_POP).map(Number).sort((a, b) => a - b);
+// Sparse data years (for interpolation lookups)
+const DATA_YEARS = Object.keys(OWID_POP).map(Number).sort((a, b) => a - b);
+// Continuous timeline: every year from first to last
+const YEAR_START = DATA_YEARS[0], YEAR_END = DATA_YEARS[DATA_YEARS.length - 1];
+const TIME_PERIODS = [];
+for (let y = YEAR_START; y <= YEAR_END; y++) TIME_PERIODS.push(y);
+
+// Interpolation helper: given a year, find bracketing data years and lerp
+function interpData(source, year) {
+    const ys = String(year);
+    if (source[ys]) return source[ys]; // exact match
+    
+    // Find bracketing years
+    let lo = DATA_YEARS[0], hi = DATA_YEARS[DATA_YEARS.length - 1];
+    for (let i = 0; i < DATA_YEARS.length - 1; i++) {
+        if (DATA_YEARS[i] <= year && DATA_YEARS[i+1] >= year) {
+            lo = DATA_YEARS[i]; hi = DATA_YEARS[i+1]; break;
+        }
+    }
+    if (lo === hi) return source[String(lo)] || {};
+    
+    const loData = source[String(lo)] || {};
+    const hiData = source[String(hi)] || {};
+    const t = (year - lo) / (hi - lo);
+    
+    // Merge all ISOs from both endpoints
+    const allISOs = new Set([...Object.keys(loData), ...Object.keys(hiData)]);
+    const result = {};
+    allISOs.forEach(iso => {
+        const v0 = loData[iso] || 0;
+        const v1 = hiData[iso] || 0;
+        if (v0 === 0 && v1 === 0) return;
+        result[iso] = Math.round(v0 + (v1 - v0) * t);
+    });
+    return result;
+}
 let currentIndex = 0;
 let activeLayer = 'pop'; // 'pop' or 'gdp'
 
@@ -519,10 +554,10 @@ function updateMap(index) {
     const year = TIME_PERIODS[index];
     const yearStr = String(year);
     
-    currentPopData = OWID_POP[yearStr] || {};
-    currentGdpData = (typeof OWID_GDP !== 'undefined' && OWID_GDP[yearStr]) || {};
-    currentNpiData = (typeof OWID_NPI !== 'undefined' && OWID_NPI[yearStr]) || {};
-    currentGdppcData = (typeof OWID_GDPPC !== 'undefined' && OWID_GDPPC[yearStr]) || {};
+    currentPopData = interpData(OWID_POP, year);
+    currentGdpData = typeof OWID_GDP !== 'undefined' ? interpData(OWID_GDP, year) : {};
+    currentNpiData = typeof OWID_NPI !== 'undefined' ? interpData(OWID_NPI, year) : {};
+    currentGdppcData = typeof OWID_GDPPC !== 'undefined' ? interpData(OWID_GDPPC, year) : {};
     
     document.getElementById('yearDisplay').textContent = yearLabel(year);
     
@@ -621,11 +656,32 @@ function sliderToIndex(val) {
 slider.addEventListener('input', (e) => {
     const idx = sliderToIndex(parseInt(e.target.value));
     if (idx !== currentIndex) updateMap(idx);
+    const year = TIME_PERIODS[idx];
+    
+    // Show year label
     sliderLabel.style.opacity = '1';
-    sliderLabel.textContent = yearLabel(TIME_PERIODS[idx]);
     const rect = slider.getBoundingClientRect();
     const pct = parseInt(e.target.value) / 1000;
     sliderLabel.style.left = (rect.left + pct * rect.width) + 'px';
+    
+    // Check for nearby event
+    if (typeof HISTORICAL_EVENTS !== 'undefined') {
+        let nearEvt = null, nearDist = Infinity;
+        HISTORICAL_EVENTS.forEach(evt => {
+            const d = Math.abs(evt.year - year);
+            if (d <= 3 && d < nearDist) { nearEvt = evt; nearDist = d; }
+        });
+        if (nearEvt) {
+            const title = currentLang === 'zh' ? nearEvt.titleZh : nearEvt.title;
+            sliderLabel.innerHTML = `<strong>${yearLabel(year)}</strong><br><span style="font-size:10px;color:#94a3b8">${title}</span>`;
+            sliderLabel.style.padding = '4px 12px';
+        } else {
+            sliderLabel.textContent = yearLabel(year);
+            sliderLabel.style.padding = '3px 10px';
+        }
+    } else {
+        sliderLabel.textContent = yearLabel(year);
+    }
 });
 slider.addEventListener('mouseup', () => setTimeout(() => sliderLabel.style.opacity = '0', 600));
 slider.addEventListener('touchend', () => setTimeout(() => sliderLabel.style.opacity = '0', 600));
