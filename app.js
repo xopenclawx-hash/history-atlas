@@ -340,7 +340,12 @@ function drawSparkline(iso, currentYear, layer) {
     const chartW = right - left, chartH = bottom - top;
     
     function xPos(year) { return left + ((year - minYear) / yearRange) * chartW; }
-    function yPos(pop) { return bottom - (pop / maxPop) * chartH; }
+    // Sqrt scale — shows ancient values better when modern values dominate
+    const useLog = maxPop > 0 && (maxPop / Math.max(1, Math.min(...ts.map(d=>d[1]).filter(v=>v>0)))) > 50;
+    function yPos(pop) {
+        if (useLog && pop > 0) return bottom - (Math.sqrt(pop) / Math.sqrt(maxPop)) * chartH;
+        return bottom - (pop / maxPop) * chartH;
+    }
     
     // Faint horizontal grid lines for scale
     ctx.strokeStyle = 'rgba(0,0,0,0.04)';
@@ -356,9 +361,9 @@ function drawSparkline(iso, currentYear, layer) {
         if (dist < nearestDist) { nearestDist = dist; nearestIdx = i; }
     });
     const curX = xPos(ts[nearestIdx][0]);
-    ctx.strokeStyle = lineColor.replace(')', ',0.2)').replace('rgb', 'rgba');
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3,3]);
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+    ctx.lineWidth = 0.8;
+    ctx.setLineDash([2,3]);
     ctx.beginPath(); ctx.moveTo(curX, top); ctx.lineTo(curX, bottom); ctx.stroke();
     ctx.setLineDash([]);
     
@@ -368,13 +373,13 @@ function drawSparkline(iso, currentYear, layer) {
     ts.forEach(d => ctx.lineTo(xPos(d[0]), yPos(d[1])));
     ctx.lineTo(xPos(ts[ts.length-1][0]), bottom);
     ctx.closePath();
-    ctx.fillStyle = fillColor;
+    ctx.fillStyle = fillColor.replace('0.08', '0.06');
     ctx.fill();
     
     // Line
     ctx.beginPath();
     ctx.strokeStyle = lineColor;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1.2;
     ts.forEach((d, i) => {
         const x = xPos(d[0]), y = yPos(d[1]);
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
@@ -394,12 +399,12 @@ function drawSparkline(iso, currentYear, layer) {
     
     // Y-axis scale labels — right-aligned to left margin
     ctx.fillStyle = '#b0b8c4';
-    ctx.font = '8px Inter, -apple-system, sans-serif';
+    ctx.font = '500 8px Inter, -apple-system, sans-serif';
     const fmtMap = { pop: formatPopShort, gdp: formatGdpShort, npi: formatNpiShort };
     const fmt = fmtMap[layer] || formatPopShort;
     ctx.textAlign = 'right';
     ctx.fillText(fmt(maxPop), left - 4, top + 7);
-    ctx.fillText('0', left - 4, bottom);
+    // Don't show 0 label (overlaps with year label and is obvious)
     
     // Year axis labels (below chart)
     ctx.fillStyle = '#9ca3af';
