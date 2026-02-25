@@ -516,7 +516,7 @@ function showVsModal() {
         modal = document.createElement('div');
         modal.id = 'vsModal';
         modal.innerHTML = `
-            <div class="vs-modal-backdrop" onclick="closeVsModal()"></div>
+            <div class="vs-modal-backdrop"></div>
             <div class="vs-modal-content">
                 <div class="vs-modal-title">${typeof currentLang !== 'undefined' && currentLang === 'zh' ? '选择对战双方' : 'SELECT COMBATANTS'}</div>
                 <div class="vs-modal-row">
