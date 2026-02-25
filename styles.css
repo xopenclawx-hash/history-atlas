@@ -14,7 +14,7 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
 .search-results.active { display: block; }
 .search-item { padding: 8px 14px; cursor: pointer; font-size: 13px; color: #94a3b8; }
 .search-item:hover { background: rgba(56,189,248,0.1); color: #e2e8f0; }
-.year-display { font-size: 24px; font-weight: 700; color: #38bdf8; letter-spacing: 1.5px; font-variant-numeric: tabular-nums; }
+.year-display { font-size: 26px; font-weight: 800; color: #38bdf8; letter-spacing: 2px; font-variant-numeric: tabular-nums; text-shadow: 0 0 20px rgba(56,189,248,0.15); }
 
 /* Map */
 #map { position: fixed; top: 52px; bottom: 56px; left: 0; right: 0; z-index: 1; background: #0a0e17; }
@@ -26,7 +26,7 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
 .tooltip-header strong { font-size: 14px; color: #111; flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tooltip-header span { font-size: 11px; color: #6b7280; flex-shrink: 0; white-space: nowrap; }
 .tooltip-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; }
-.tooltip-value { font-size: 20px; font-weight: 700; color: #1d4ed8; margin: 3px 0 8px; letter-spacing: -0.3px; }
+.tooltip-value { font-size: 18px; font-weight: 700; color: #1d4ed8; margin: 2px 0 6px; letter-spacing: -0.3px; }
 #tooltipSparkline { width: 220px; height: 80px; }
 
 /* Stats panel */
