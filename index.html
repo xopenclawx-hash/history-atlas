@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>History Atlas</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=81"/>
+    <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap">
+    <link rel="stylesheet" href="styles.css?v=82"/>
 </head>
 <body>
     <!-- Header -->
@@ -55,6 +56,34 @@
 
     <!-- Color legend — discrete bins -->
     <div class="color-legend" id="colorLegend"></div>
+
+    <!-- Country detail card (click) -->
+    <div class="country-card" id="countryCard" style="display:none;">
+        <div class="cc-header">
+            <strong id="ccName"></strong>
+            <button class="cc-close" id="ccClose">&times;</button>
+        </div>
+        <div class="cc-body">
+            <div class="cc-metrics">
+                <div class="cc-metric">
+                    <div class="cc-metric-label">Population</div>
+                    <div class="cc-metric-val" id="ccPop">--</div>
+                    <div class="cc-metric-rank" id="ccPopRank"></div>
+                </div>
+                <div class="cc-metric">
+                    <div class="cc-metric-label">GDP</div>
+                    <div class="cc-metric-val" id="ccGdp">--</div>
+                    <div class="cc-metric-rank" id="ccGdpRank"></div>
+                </div>
+                <div class="cc-metric">
+                    <div class="cc-metric-label">Strength</div>
+                    <div class="cc-metric-val" id="ccNpi">--</div>
+                    <div class="cc-metric-rank" id="ccNpiRank"></div>
+                </div>
+            </div>
+            <canvas id="ccChart" width="340" height="100"></canvas>
+        </div>
+    </div>
 
     <!-- Migration info card -->
     <div class="mig-card" id="migCard">
@@ -129,12 +158,12 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="owid-data.js?v=81"></script>
-    <script src="owid-gdp.js?v=81"></script>
-    <script src="owid-npi.js?v=81"></script>
-    <script src="events.js?v=81"></script>
-    <script src="migrations.js?v=81"></script>
-    <script src="i18n.js?v=81"></script>
-    <script src="app.js?v=81"></script>
+    <script src="owid-data.js?v=82"></script>
+    <script src="owid-gdp.js?v=82"></script>
+    <script src="owid-npi.js?v=82"></script>
+    <script src="events.js?v=82"></script>
+    <script src="migrations.js?v=82"></script>
+    <script src="i18n.js?v=82"></script>
+    <script src="app.js?v=82"></script>
 </body>
 </html>

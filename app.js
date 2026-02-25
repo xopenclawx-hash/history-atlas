@@ -458,6 +458,8 @@ fetch('countries.geojson?v=13')
                     click: function(e) {
                         if (compareMode) {
                             addCompareCountry(getISO(feature));
+                        } else {
+                            showCountryCard(getISO(feature), e.originalEvent.clientX, e.originalEvent.clientY);
                         }
                     },
                 });
@@ -505,6 +507,8 @@ searchInput.addEventListener('input', () => {
 searchInput.addEventListener('blur', () => setTimeout(() => searchResults.classList.remove('active'), 200));
 
 // ===== UPDATE MAP =====
+let prevRankings = {};
+
 function updateMap(index) {
     currentIndex = index;
     const year = TIME_PERIODS[index];
@@ -563,14 +567,28 @@ function updateMap(index) {
     document.getElementById('worldTotal').textContent = totalDisplay;
     
     const regionStats = document.getElementById('regionStats');
+    const newRankings = {};
+    sorted.forEach((c, i) => { newRankings[c.iso] = i + 1; });
+    
     regionStats.innerHTML = sorted.map((c, i) => {
         const name = getLocalName(c.iso);
-        return `<div class="region-item">
-            <span class="region-rank">${i+1}</span>
-            <span class="region-name" title="${c.iso}">${name}</span>
+        const rank = i + 1;
+        const prevRank = prevRankings[c.iso];
+        let arrow = '';
+        if (prevRank !== undefined && prevRank !== rank) {
+            const diff = prevRank - rank;
+            if (diff > 0) arrow = `<span class="rank-change rank-up">+${diff}</span>`;
+            else arrow = `<span class="rank-change rank-down">${diff}</span>`;
+        }
+        const hl = prevRank !== undefined && prevRank !== rank ? ' highlight' : '';
+        return `<div class="region-item${hl}">
+            <span class="region-rank">${rank}</span>
+            <span class="region-name" title="${c.iso}">${name}${arrow}</span>
             <span class="region-pop">${fmtFn(c.val)}</span>
         </div>`;
     }).join('');
+    
+    prevRankings = newRankings;
 }
 
 // ===== DATA LAYER TABS =====
@@ -629,6 +647,13 @@ slider.addEventListener('touchstart', () => { sliderLabel.style.display = 'block
 // Keyboard
 document.addEventListener('keydown', (e) => {
     if (e.target === searchInput) return;
+    if (e.key === ' ' || e.key === 'k') { e.preventDefault(); playBtn.click(); return; }
+    if (e.key === 'Escape') {
+        document.getElementById('countryCard').style.display = 'none';
+        selectedCountryISO = null;
+        if (compareMode) { document.getElementById('compareClose').click(); }
+        return;
+    }
     if (e.key === 'ArrowLeft' && currentIndex > 0) {
         currentIndex--;
         slider.value = (currentIndex / (TIME_PERIODS.length - 1)) * 1000;
@@ -1068,16 +1093,6 @@ function drawVsChart(isoL, isoR) {
     ctx.fillText('0', left - 3, bottom);
 }
 
-// ===== SMOOTH PLAYBACK =====
-// Override play button with smooth interpolation
-const origPlayClick = playBtn.onclick;
-playBtn.addEventListener('click', function(e) {
-    // The existing handler already works, just make the interval shorter for smoother feel
-}, true);
-
-// Make autoplay smoother by reducing interval
-const _origPlayBtn = playBtn.cloneNode(true);
-
 // ===== MIGRATION ANIMATIONS (one at a time) =====
 const shipLayer = L.layerGroup().addTo(map);
 let migQueue = [];
@@ -1183,6 +1198,133 @@ const _prevUpdateMap = updateMap;
 updateMap = function(index) {
     _prevUpdateMap(index);
     checkMigrations(TIME_PERIODS[index]);
+};
+
+
+// ===== COUNTRY DETAIL CARD =====
+let selectedCountryISO = null;
+
+function showCountryCard(iso, mouseX, mouseY) {
+    selectedCountryISO = iso;
+    const card = document.getElementById('countryCard');
+    const name = getLocalName(iso);
+    const year = TIME_PERIODS[currentIndex];
+    
+    document.getElementById('ccName').textContent = name + ' (' + yearLabel(year) + ')';
+    
+    // Metrics
+    const pop = currentPopData[iso] || 0;
+    const gdp = currentGdpData[iso] || 0;
+    const npi = currentNpiData[iso] || 0;
+    
+    document.getElementById('ccPop').textContent = pop > 0 ? formatPop(pop) : '--';
+    document.getElementById('ccGdp').textContent = gdp > 0 ? formatGdp(gdp) : '--';
+    document.getElementById('ccNpi').textContent = npi > 0 ? formatNpi(npi) : '--';
+    
+    // Rank
+    const popRank = Object.values(currentPopData).filter(v => v > pop).length + 1;
+    const gdpRank = Object.values(currentGdpData).filter(v => v > gdp).length + 1;
+    const npiRank = Object.values(currentNpiData).filter(v => v > npi).length + 1;
+    document.getElementById('ccPopRank').textContent = pop > 0 ? '#' + popRank : '';
+    document.getElementById('ccGdpRank').textContent = gdp > 0 ? '#' + gdpRank : '';
+    document.getElementById('ccNpiRank').textContent = npi > 0 ? '#' + npiRank : '';
+    
+    // Draw mini all-layers chart
+    drawCountryCardChart(iso, year);
+    
+    // Position card
+    const w = window.innerWidth, h = window.innerHeight;
+    let left = mouseX + 20, top = mouseY - 80;
+    if (left + 400 > w) left = mouseX - 400;
+    if (top + 250 > h) top = h - 260;
+    if (top < 60) top = 60;
+    card.style.left = left + 'px';
+    card.style.top = top + 'px';
+    card.style.display = 'block';
+}
+
+function drawCountryCardChart(iso, currentYear) {
+    const canvas = document.getElementById('ccChart');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const cw = 340, ch = 100;
+    canvas.width = cw * dpr; canvas.height = ch * dpr;
+    canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, cw, ch);
+    
+    const ts = COUNTRY_TIMESERIES[iso];
+    if (!ts || ts.length < 2) return;
+    
+    const maxV = Math.max(...ts.map(d => d[1]));
+    const minY = ts[0][0], maxY = ts[ts.length-1][0];
+    const left = 2, right = cw - 2, top = 4, bottom = ch - 14;
+    
+    function xPos(year) { return left + ((year - minY) / (maxY - minY || 1)) * (right - left); }
+    function yPos(val) { return bottom - (val / maxV) * (bottom - top); }
+    
+    // Area fill
+    ctx.beginPath();
+    ctx.moveTo(xPos(ts[0][0]), bottom);
+    ts.forEach(d => ctx.lineTo(xPos(d[0]), yPos(d[1])));
+    ctx.lineTo(xPos(ts[ts.length-1][0]), bottom);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(56,189,248,0.06)';
+    ctx.fill();
+    
+    // Line
+    ctx.beginPath(); ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 1.5;
+    ts.forEach((d, i) => { if (i === 0) ctx.moveTo(xPos(d[0]), yPos(d[1])); else ctx.lineTo(xPos(d[0]), yPos(d[1])); });
+    ctx.stroke();
+    
+    // Current year marker
+    let ni = 0, nd = Infinity;
+    ts.forEach((d, i) => { const dd = Math.abs(d[0] - currentYear); if (dd < nd) { ni = i; nd = dd; } });
+    const cx = xPos(ts[ni][0]), cy = yPos(ts[ni][1]);
+    ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI*2); ctx.fillStyle = '#38bdf8'; ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
+    
+    // Axis labels
+    ctx.fillStyle = '#475569'; ctx.font = '8px -apple-system, sans-serif';
+    ctx.textAlign = 'left'; ctx.fillText(yearLabel(minY), left, ch - 2);
+    ctx.textAlign = 'right'; ctx.fillText(yearLabel(maxY), right, ch - 2);
+}
+
+document.getElementById('ccClose').addEventListener('click', () => {
+    document.getElementById('countryCard').style.display = 'none';
+    selectedCountryISO = null;
+});
+
+// Close on map click (not on country)
+map.on('click', () => {
+    document.getElementById('countryCard').style.display = 'none';
+    selectedCountryISO = null;
+});
+
+// Update card when year changes
+const __origUpdateMap = updateMap;
+updateMap = function(index) {
+    __origUpdateMap(index);
+    if (selectedCountryISO) {
+        const card = document.getElementById('countryCard');
+        if (card.style.display !== 'none') {
+            const iso = selectedCountryISO;
+            const year = TIME_PERIODS[index];
+            document.getElementById('ccName').textContent = getLocalName(iso) + ' (' + yearLabel(year) + ')';
+            const pop = currentPopData[iso] || 0;
+            const gdp = currentGdpData[iso] || 0;
+            const npi = currentNpiData[iso] || 0;
+            document.getElementById('ccPop').textContent = pop > 0 ? formatPop(pop) : '--';
+            document.getElementById('ccGdp').textContent = gdp > 0 ? formatGdp(gdp) : '--';
+            document.getElementById('ccNpi').textContent = npi > 0 ? formatNpi(npi) : '--';
+            drawCountryCardChart(iso, year);
+        }
+    }
+    // Pulse year display
+    const yd = document.querySelector('.year-display');
+    yd.classList.remove('pulse');
+    void yd.offsetWidth;
+    yd.classList.add('pulse');
 };
 
 // Data source toggle
