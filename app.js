@@ -49,7 +49,8 @@ function interpData(source, year) {
         const v0 = loData[iso] || 0;
         const v1 = hiData[iso] || 0;
         if (v0 === 0 && v1 === 0) return;
-        result[iso] = Math.round(v0 + (v1 - v0) * t);
+        const interp = v0 + (v1 - v0) * t;
+        result[iso] = interp > 100 ? Math.round(interp) : parseFloat(interp.toPrecision(4));
     });
     return result;
 }
