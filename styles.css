@@ -274,3 +274,22 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
 .stats-row:nth-child(1) .stats-rank { color: #fbbf24; }
 .stats-row:nth-child(2) .stats-rank { color: #94a3b8; }
 .stats-row:nth-child(3) .stats-rank { color: #b45309; }
+
+/* VS Modal */
+#vsModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 2000; }
+.vs-modal-backdrop { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+.vs-modal-content { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 28px 36px; text-align: center; min-width: 380px; box-shadow: 0 25px 60px rgba(0,0,0,0.5); }
+.vs-modal-title { font-size: 13px; font-weight: 700; color: #94a3b8; letter-spacing: 3px; margin-bottom: 20px; }
+.vs-modal-row { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 16px; }
+.vs-modal-slot { width: 140px; height: 60px; border: 2px dashed rgba(255,255,255,0.15); border-radius: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; }
+.vs-modal-slot.active { border-color: #38bdf8; box-shadow: 0 0 15px rgba(56,189,248,0.2); }
+.vs-modal-slot:hover { border-color: rgba(255,255,255,0.3); }
+.vs-modal-slot-label { font-size: 11px; color: #475569; }
+.vs-modal-slot-name { font-size: 16px; font-weight: 700; }
+.vs-modal-vs { font-size: 20px; font-weight: 800; color: #475569; }
+.vs-modal-year { font-size: 14px; color: #38bdf8; font-weight: 600; margin-bottom: 20px; letter-spacing: 1px; }
+.vs-modal-go { display: block; width: 100%; padding: 12px; background: linear-gradient(135deg, #1e3a8a 0%, #4c1d95 50%, #7f1d1d 100%); color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; letter-spacing: 2px; cursor: pointer; transition: all 0.25s; font-family: Inter, -apple-system, sans-serif; margin-bottom: 8px; }
+.vs-modal-go:disabled { opacity: 0.3; cursor: not-allowed; }
+.vs-modal-go:not(:disabled):hover { transform: scale(1.02); box-shadow: 0 4px 20px rgba(79,70,229,0.3); }
+.vs-modal-cancel { display: block; width: 100%; padding: 8px; background: transparent; color: #475569; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; font-size: 11px; font-weight: 500; letter-spacing: 1px; cursor: pointer; font-family: Inter, -apple-system, sans-serif; }
+.vs-modal-cancel:hover { color: #94a3b8; border-color: rgba(255,255,255,0.15); }

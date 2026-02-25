@@ -508,6 +508,11 @@ fetch('countries.geojson?v=13')
                         showTooltip(e, layer);
                     },
                     click: function(e) {
+                        // VS modal country selection
+                        if (typeof vsModalSelecting !== 'undefined' && vsModalSelecting) {
+                            vsModalPickCountry(getISO(feature));
+                            return;
+                        }
                         if (compareMode) {
                             addCompareCountry(getISO(feature));
                         } else {
@@ -996,14 +1001,20 @@ let vsCountries = [null, null]; // [left, right] ISO codes
 })();
 
 document.getElementById('compareBtn').addEventListener('click', () => {
-    compareMode = !compareMode;
-    document.getElementById('compareBtn').classList.toggle('active', compareMode);
-    if (!compareMode) {
-        document.getElementById('comparePanel').style.display = 'none';
-        vsCountries = [null, null]; vsSlot = 0;
+    // New: open VS modal for map battle
+    if (typeof showVsModal === 'function') {
+        showVsModal();
     } else {
-        resetVsPanel();
-        document.getElementById('comparePanel').style.display = 'block';
+        // Fallback to old panel
+        compareMode = !compareMode;
+        document.getElementById('compareBtn').classList.toggle('active', compareMode);
+        if (!compareMode) {
+            document.getElementById('comparePanel').style.display = 'none';
+            vsCountries = [null, null]; vsSlot = 0;
+        } else {
+            resetVsPanel();
+            document.getElementById('comparePanel').style.display = 'block';
+        }
     }
 });
 
