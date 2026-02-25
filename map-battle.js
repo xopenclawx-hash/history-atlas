@@ -314,6 +314,15 @@ class MapBattle {
                 if (u.hp <= 0) u.dead = true;
             });
         }
+        // Aftermath: units hold position, winner celebrates
+        else if (this.phase === 'aftermath') {
+            // Gentle drift for winner units
+            this.units[this.winner].forEach(u => {
+                if (u.dead) return;
+                u.lat += (Math.random() - 0.5) * 0.005;
+                u.lng += (Math.random() - 0.5) * 0.005;
+            });
+        }
         
         // Update particles
         this.particles.forEach(p => {
