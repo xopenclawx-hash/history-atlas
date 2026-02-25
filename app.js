@@ -1137,7 +1137,8 @@ function drawVsChart(isoL, isoR) {
     
     const tsMap = { pop: COUNTRY_TIMESERIES, gdp: typeof GDP_TIMESERIES !== 'undefined' ? GDP_TIMESERIES : {}, npi: typeof NPI_TIMESERIES !== 'undefined' ? NPI_TIMESERIES : {} };
     const tsSource = tsMap[activeLayer] || tsMap.pop;
-    const tsL = tsSource[isoL] || [], tsR = tsSource[isoR] || [];
+    const tsL = (tsSource[isoL] || []).filter(d => d[0] >= YEAR_START);
+    const tsR = (tsSource[isoR] || []).filter(d => d[0] >= YEAR_START);
     if (tsL.length < 2 && tsR.length < 2) return;
     
     const allYears = [...tsL.map(d=>d[0]), ...tsR.map(d=>d[0])];
