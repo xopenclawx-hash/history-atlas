@@ -25,7 +25,7 @@ let activeLayer = 'pop'; // 'pop' or 'gdp'
 const ISO_FIXES = {
     'France': 'FRA', 'Norway': 'NOR', 'Northern Cyprus': 'CYP',
     'Somaliland': 'SOM', 'Kosovo': 'KOS', 'Western Sahara': 'ESH',
-};
+// };
 
 function yearLabel(y) {
     if (y < 0) return Math.abs(y) + ' BCE';
@@ -205,7 +205,7 @@ const SHORT_NAMES = {
     'Sao Tome and Principe': 'Sao Tome & Principe',
     'Saint Vincent and the Grenadines': 'St. Vincent',
     'Micronesia (country)': 'Micronesia',
-};
+// };
 
 function shortName(name) {
     return SHORT_NAMES[name] || name;
@@ -572,23 +572,12 @@ function updateMap(index) {
     
     regionStats.innerHTML = sorted.map((c, i) => {
         const name = getLocalName(c.iso);
-        const rank = i + 1;
-        const prevRank = prevRankings[c.iso];
-        let arrow = '';
-        if (prevRank !== undefined && prevRank !== rank) {
-            const diff = prevRank - rank;
-            if (diff > 0) arrow = `<span class="rank-change rank-up">+${diff}</span>`;
-            else arrow = `<span class="rank-change rank-down">${diff}</span>`;
-        }
-        const hl = prevRank !== undefined && prevRank !== rank ? ' highlight' : '';
-        return `<div class="region-item${hl}">
-            <span class="region-rank">${rank}</span>
-            <span class="region-name" title="${c.iso}">${name}${arrow}</span>
+        return `<div class="region-item">
+            <span class="region-rank">${i+1}</span>
+            <span class="region-name" title="${c.iso}">${name}</span>
             <span class="region-pop">${fmtFn(c.val)}</span>
         </div>`;
     }).join('');
-    
-    prevRankings = newRankings;
 }
 
 // ===== DATA LAYER TABS =====
@@ -895,12 +884,12 @@ window.addEventListener('resize', paintEraStrip);
 
 // Hook event detection into updateMap
 const _origUpdateMap = updateMap;
-updateMap = function(index) {
+// updateMap = function(index) {
     _origUpdateMap(index);
     const year = TIME_PERIODS[index];
     const evt = findEventForYear(year);
     if (evt) showEvent(evt);
-};
+// };
 
 // Add tab label for gdppc
 const tabGdppc = document.getElementById('tabGdppc');
@@ -1194,11 +1183,11 @@ function checkMigrations(year) {
 }
 
 // Hook into updateMap
-const _prevUpdateMap = updateMap;
-updateMap = function(index) {
-    _prevUpdateMap(index);
-    checkMigrations(TIME_PERIODS[index]);
-};
+// const _prevUpdateMap = updateMap;
+// updateMap = function(index) {
+//     _prevUpdateMap(index);
+//     checkMigrations(TIME_PERIODS[index]);
+// };
 
 
 // ===== COUNTRY DETAIL CARD =====
@@ -1303,7 +1292,7 @@ map.on('click', () => {
 
 // Update card when year changes
 const __origUpdateMap = updateMap;
-updateMap = function(index) {
+// updateMap = function(index) {
     __origUpdateMap(index);
     if (selectedCountryISO) {
         const card = document.getElementById('countryCard');
@@ -1325,7 +1314,7 @@ updateMap = function(index) {
     yd.classList.remove('pulse');
     void yd.offsetWidth;
     yd.classList.add('pulse');
-};
+// };
 
 // Data source toggle
 document.getElementById('dataSourceToggle').addEventListener('click', (e) => {
