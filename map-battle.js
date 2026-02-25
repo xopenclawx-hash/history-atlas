@@ -56,9 +56,17 @@ class MapBattle {
             return;
         }
         
-        // Battle point = midpoint between countries
+        // Battle point = midpoint, handling date line crossing
         this.battleLat = (this.posL.lat + this.posR.lat) / 2;
-        this.battleLng = (this.posL.lng + this.posR.lng) / 2;
+        let dLng = this.posR.lng - this.posL.lng;
+        // If distance > 180, wrap around the other way (go via Pacific for CHN-USA)
+        if (Math.abs(dLng) > 180) {
+            dLng = dLng > 0 ? dLng - 360 : dLng + 360;
+        }
+        this.battleLng = this.posL.lng + dLng / 2;
+        // Normalize to [-180, 180]
+        if (this.battleLng > 180) this.battleLng -= 360;
+        if (this.battleLng < -180) this.battleLng += 360;
         
         // Calculate force balance
         const L = data.left, R = data.right;
@@ -112,7 +120,7 @@ class MapBattle {
     }
     
     spawnUnits() {
-        const spread = 1.5; // degrees of spread around centroid
+        const spread = 3; // degrees of spread for formation feel
         
         for (let i = 0; i < this.unitCountL; i++) {
             this.units.left.push({
@@ -164,7 +172,12 @@ class MapBattle {
             banner.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:1500;background:rgba(10,14,23,0.92);backdrop-filter:blur(16px);padding:14px 32px;border-radius:12px;text-align:center;border:1px solid rgba(255,255,255,0.08);pointer-events:none;transition:opacity 0.5s;box-shadow:0 8px 30px rgba(0,0,0,0.4);';
             document.body.appendChild(banner);
         }
-        banner.innerHTML = `<div style="font-size:18px;font-weight:700;color:#fff;letter-spacing:1px;">${title}</div><div style="font-size:12px;color:#64748b;margin-top:3px;">${subtitle}</div>`;
+        // Shorten long titles
+        const shortTitle = title.replace('United States of America', 'USA')
+            .replace('United Kingdom', 'UK')
+            .replace('Democratic Republic of the Congo', 'DR Congo')
+            .replace('Central African Republic', 'CAR');
+        banner.innerHTML = `<div style="font-size:18px;font-weight:700;color:#fff;letter-spacing:1px;">${shortTitle}</div><div style="font-size:12px;color:#64748b;margin-top:3px;">${subtitle}</div>`;
         banner.style.opacity = '1';
     }
     
@@ -382,13 +395,17 @@ class MapBattle {
         // Casualty counter
         const deadL = this.units.left.filter(u => u.dead).length;
         const deadR = this.units.right.filter(u => u.dead).length;
+        // Casualty counter with labels
         ctx.font = '600 11px Inter, sans-serif';
+        const nameL = typeof getLocalName !== 'undefined' ? getLocalName(this.leftISO) : this.leftISO;
+        const nameR = typeof getLocalName !== 'undefined' ? getLocalName(this.rightISO) : this.rightISO;
+        
         ctx.fillStyle = MAP_BATTLE.COLORS.blue.fill;
         ctx.textAlign = 'left';
-        ctx.fillText(`${this.unitCountL - deadL}/${this.unitCountL}`, 12, this.h - 12);
+        ctx.fillText(`${nameL.slice(0,12)} ${this.unitCountL - deadL}/${this.unitCountL}`, 12, this.h - 12);
         ctx.fillStyle = MAP_BATTLE.COLORS.red.fill;
         ctx.textAlign = 'right';
-        ctx.fillText(`${this.unitCountR - deadR}/${this.unitCountR}`, this.w - 12, this.h - 12);
+        ctx.fillText(`${this.unitCountR - deadR}/${this.unitCountR} ${nameR.slice(0,12)}`, this.w - 12, this.h - 12);
     }
     
     drawUnits(side, colors) {
