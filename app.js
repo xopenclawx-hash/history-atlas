@@ -25,7 +25,7 @@ let activeLayer = 'pop'; // 'pop' or 'gdp'
 const ISO_FIXES = {
     'France': 'FRA', 'Norway': 'NOR', 'Northern Cyprus': 'CYP',
     'Somaliland': 'SOM', 'Kosovo': 'KOS', 'Western Sahara': 'ESH',
-// };
+};
 
 function yearLabel(y) {
     if (y < 0) return Math.abs(y) + ' BCE';
@@ -205,7 +205,7 @@ const SHORT_NAMES = {
     'Sao Tome and Principe': 'Sao Tome & Principe',
     'Saint Vincent and the Grenadines': 'St. Vincent',
     'Micronesia (country)': 'Micronesia',
-// };
+};
 
 function shortName(name) {
     return SHORT_NAMES[name] || name;
@@ -567,9 +567,6 @@ function updateMap(index) {
     document.getElementById('worldTotal').textContent = totalDisplay;
     
     const regionStats = document.getElementById('regionStats');
-    const newRankings = {};
-    sorted.forEach((c, i) => { newRankings[c.iso] = i + 1; });
-    
     regionStats.innerHTML = sorted.map((c, i) => {
         const name = getLocalName(c.iso);
         return `<div class="region-item">
@@ -884,12 +881,12 @@ window.addEventListener('resize', paintEraStrip);
 
 // Hook event detection into updateMap
 const _origUpdateMap = updateMap;
-// updateMap = function(index) {
+updateMap = function(index) {
     _origUpdateMap(index);
     const year = TIME_PERIODS[index];
     const evt = findEventForYear(year);
     if (evt) showEvent(evt);
-// };
+};
 
 // Add tab label for gdppc
 const tabGdppc = document.getElementById('tabGdppc');
@@ -1182,12 +1179,9 @@ function checkMigrations(year) {
     });
 }
 
-// Hook into updateMap
+// Migration hooks disabled
 // const _prevUpdateMap = updateMap;
-// updateMap = function(index) {
-//     _prevUpdateMap(index);
-//     checkMigrations(TIME_PERIODS[index]);
-// };
+// updateMap = function(index) { _prevUpdateMap(index); checkMigrations(TIME_PERIODS[index]); };
 
 
 // ===== COUNTRY DETAIL CARD =====
@@ -1292,7 +1286,7 @@ map.on('click', () => {
 
 // Update card when year changes
 const __origUpdateMap = updateMap;
-// updateMap = function(index) {
+updateMap = function(index) {
     __origUpdateMap(index);
     if (selectedCountryISO) {
         const card = document.getElementById('countryCard');
@@ -1314,7 +1308,7 @@ const __origUpdateMap = updateMap;
     yd.classList.remove('pulse');
     void yd.offsetWidth;
     yd.classList.add('pulse');
-// };
+};
 
 // Data source toggle
 document.getElementById('dataSourceToggle').addEventListener('click', (e) => {
