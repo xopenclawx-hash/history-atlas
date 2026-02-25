@@ -15,14 +15,17 @@ const MAP_BATTLE = {
 
 // Get geographic centroid of a country from GeoJSON
 function getCountryCentroid(iso) {
-    if (!window.geoLayer) return null;
+    if (typeof geoLayer === 'undefined' || !geoLayer) return null;
     let found = null;
     geoLayer.eachLayer(layer => {
+        if (found) return; // already found
         const props = layer.feature.properties;
-        const layerIso = props.ISO_A3 !== '-99' ? props.ISO_A3 : (ISO_FIXES[props.NAME] || props.ISO_A3);
+        let layerIso = props.ISO_A3;
+        if (layerIso === '-99' && typeof ISO_FIXES !== 'undefined') {
+            layerIso = ISO_FIXES[props.NAME] || layerIso;
+        }
         if (layerIso === iso) {
-            const bounds = layer.getBounds();
-            found = bounds.getCenter();
+            found = layer.getBounds().getCenter();
         }
     });
     return found;
@@ -48,7 +51,8 @@ class MapBattle {
         this.posR = getCountryCentroid(rightISO);
         
         if (!this.posL || !this.posR) {
-            console.error('Cannot find country centroids');
+            console.error('Cannot find country centroids for', leftISO, rightISO);
+            this.failed = true;
             return;
         }
         
@@ -132,6 +136,7 @@ class MapBattle {
     }
     
     start(onComplete) {
+        if (this.failed) { console.error('Battle failed to init'); return; }
         this.onComplete = onComplete;
         this.running = true;
         this.phaseStart = performance.now();
