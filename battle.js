@@ -346,23 +346,31 @@ class BattleSimulation {
     
     drawTerrain() {
         const ctx = this.ctx;
-        // Subtle gradient background
+        // Gradient background
         const grad = ctx.createLinearGradient(0, 0, this.w, 0);
-        grad.addColorStop(0, 'rgba(30,58,138,0.15)');
-        grad.addColorStop(0.5, 'rgba(30,30,30,0.1)');
-        grad.addColorStop(1, 'rgba(127,29,29,0.15)');
+        grad.addColorStop(0, 'rgba(30,58,138,0.18)');
+        grad.addColorStop(0.5, 'rgba(15,20,30,0.15)');
+        grad.addColorStop(1, 'rgba(127,29,29,0.18)');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, this.w, this.h);
         
-        // Terrain dots
-        ctx.fillStyle = 'rgba(255,255,255,0.03)';
-        for (let x = 0; x < this.w; x += 20) {
-            for (let y = 0; y < this.h; y += 20) {
-                ctx.beginPath();
-                ctx.arc(x + (Math.sin(x * 0.1 + y * 0.1) * 5), y, 1, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
+        // Country labels at top
+        const nameL = typeof getLocalName !== 'undefined' ? getLocalName(this.leftISO) : this.leftISO;
+        const nameR = typeof getLocalName !== 'undefined' ? getLocalName(this.rightISO) : this.rightISO;
+        ctx.font = '600 10px Inter, sans-serif';
+        ctx.fillStyle = BATTLE_CONFIG.COLORS.left.primary;
+        ctx.textAlign = 'left';
+        ctx.fillText(nameL, 6, 12);
+        ctx.fillStyle = BATTLE_CONFIG.COLORS.right.primary;
+        ctx.textAlign = 'right';
+        ctx.fillText(nameR, this.w - 6, 12);
+        
+        // Year in center
+        const yearStr = typeof yearLabel !== 'undefined' ? yearLabel(this.year) : String(this.year);
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
+        ctx.font = '500 9px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(yearStr, this.midX, 12);
     }
     
     drawUnits(side) {
@@ -461,7 +469,9 @@ function startBattleSimulation(isoL, isoR) {
     if (activeBattle) activeBattle.stop();
     activeBattle = new BattleSimulation(canvas, isoL, isoR, year, data);
     activeBattle.start((winner, ratioL, ratioR) => {
-        // Battle complete
+        const btn = document.getElementById('battleBtn');
+        btn.textContent = currentLang === 'zh' ? 'RE-SIMULATE' : 'RE-SIMULATE';
+        btn.style.display = 'block';
     });
 }
 
