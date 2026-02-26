@@ -41,8 +41,8 @@ function generateArmyRoutes(fromPos, toPos, numRoutes, side) {
     const perpLat = -dLng / len;
     const perpLng = dLat / len;
     
-    const names_en = ['Main Force', '1st Flank', '2nd Flank', 'Naval Force', 'Reserve'];
-    const names_zh = ['主力', '左翼', '右翼', '海军', '预备队'];
+    const names_en = ['Main Army', 'Northern Front', 'Southern Front', 'Naval Fleet', 'Reserve Corps'];
+    const names_zh = ['主力军团', '北路军', '南路军', '海军舰队', '预备军团'];
     
     // Distribute forces: main gets 40-50%, flanks get rest
     const forceDistribution = numRoutes === 2 ? [0.6, 0.4] :
@@ -577,17 +577,39 @@ class MapBattle {
                 ctx.closePath();
                 ctx.fill();
                 
-                // Route label near arrowhead
+                // Route label near arrowhead with troop count
                 if (this.phase !== 'aftermath') {
                     const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
                     const label = isZh ? route.name_zh : route.name_en;
-                    ctx.font = '700 11px Inter, sans-serif';
+                    const fmtK = n => n >= 1000 ? (n/1000).toFixed(0) + 'M' : n + 'K';
+                    const troopLabel = fmtK(route.totalTroops - route.casualties);
+                    
+                    // Background pill for readability
+                    const fullLabel = `${label} (${troopLabel})`;
+                    ctx.font = '700 10px Inter, sans-serif';
+                    const labelW = ctx.measureText(fullLabel).width + 10;
+                    ctx.fillStyle = 'rgba(10,14,23,0.8)';
+                    ctx.globalAlpha = 0.9;
+                    ctx.beginPath();
+                    ctx.roundRect(px2.x - labelW/2, px2.y - width - 20, labelW, 16, 4);
+                    ctx.fill();
+                    
                     ctx.fillStyle = colors.fill;
-                    ctx.globalAlpha = 0.8;
                     ctx.textAlign = 'center';
-                    ctx.fillText(label, px2.x, px2.y - width - 6);
+                    ctx.fillText(fullLabel, px2.x, px2.y - width - 8);
                     ctx.globalAlpha = 1;
                 }
+            }
+            
+            // Origin marker (small circle at start of route)
+            if (prog > 0.1) {
+                const origin = this.latLngToPixel(route.from.lat, route.from.lng);
+                ctx.fillStyle = colors.fill;
+                ctx.globalAlpha = 0.6;
+                ctx.beginPath();
+                ctx.arc(origin.x, origin.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
             }
             
             // Naval route: draw wave dashes
