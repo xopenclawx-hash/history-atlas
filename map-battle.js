@@ -705,6 +705,34 @@ class MapBattle {
         this.running = false;
         if (this.animId) cancelAnimationFrame(this.animId);
         
+        // Draw final state on canvas (static, won't be cleared)
+        this.draw();
+        
+        // Add victory banner as HTML element (persists after canvas)
+        const winName = this.winner === 'left' ? this.shortNameL : this.shortNameR;
+        const winColor = this.winner === 'left' ? MAP_BATTLE.COLORS.blue.fill : MAP_BATTLE.COLORS.red.fill;
+        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
+        let victoryBanner = document.getElementById('victoryBanner');
+        if (!victoryBanner) {
+            victoryBanner = document.createElement('div');
+            victoryBanner.id = 'victoryBanner';
+            victoryBanner.style.cssText = `position:fixed;top:55px;left:50%;transform:translateX(-50%);z-index:1600;
+                background:rgba(10,14,23,0.92);backdrop-filter:blur(20px);
+                padding:16px 40px;border-radius:14px;text-align:center;
+                border:1px solid ${winColor}33;
+                box-shadow:0 0 40px ${winColor}22, 0 8px 30px rgba(0,0,0,0.4);
+                font-family:Inter,sans-serif;transition:opacity 1s;`;
+            victoryBanner.innerHTML = `
+                <div style="font-size:11px;color:#64748b;letter-spacing:3px;margin-bottom:4px;">${isZh ? '战争结束' : 'WAR CONCLUDED'}</div>
+                <div style="font-size:22px;font-weight:800;color:${winColor};letter-spacing:2px;">${winName} ${isZh ? '获胜' : 'VICTORY'}</div>
+            `;
+            document.body.appendChild(victoryBanner);
+        }
+        
+        // Auto-scroll war log to bottom
+        const logEntries = document.getElementById('warLogEntries');
+        if (logEntries) logEntries.scrollTop = logEntries.scrollHeight;
+        
         // Add BATTLE AGAIN button
         let againBtn = document.getElementById('battleAgainBtn');
         if (!againBtn) {
@@ -720,18 +748,16 @@ class MapBattle {
             document.body.appendChild(againBtn);
         }
         
-        // Auto cleanup after 20 seconds (keep results visible longer)
+        // Auto cleanup after 30 seconds
         setTimeout(() => {
-            if (this.canvas) this.canvas.remove();
+            // Fade everything out
+            [this.canvas, document.getElementById('warLogPanel'), document.getElementById('victoryBanner')].forEach(el => {
+                if (el) { el.style.transition = 'opacity 1.5s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 1500); }
+            });
             window.removeEventListener('resize', this._resizeHandler);
-            // Keep war log visible for another 10s
-            setTimeout(() => {
-                const panel = document.getElementById('warLogPanel');
-                if (panel) { panel.style.transition = 'opacity 1s'; panel.style.opacity = '0'; setTimeout(() => panel.remove(), 1000); }
-            }, 10000);
-            if (againBtn && againBtn.parentNode) againBtn.remove();
+            if (againBtn && againBtn.parentNode) { againBtn.style.transition = 'opacity 1s'; againBtn.style.opacity = '0'; setTimeout(() => againBtn.remove(), 1000); }
             if (this.onComplete) this.onComplete(this.winner, this.ratioL, this.ratioR);
-        }, 20000);
+        }, 30000);
     }
     
     cleanup() {
@@ -741,6 +767,8 @@ class MapBattle {
         if (panel) panel.remove();
         const banner = document.getElementById('battleBanner');
         if (banner) banner.remove();
+        const vb = document.getElementById('victoryBanner');
+        if (vb) vb.remove();
     }
     
     stop() {
