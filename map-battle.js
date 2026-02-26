@@ -1,9 +1,9 @@
 // ===== MAP-BASED BATTLE SIMULATION v3 =====
 // Premium strategy-game style visualization
-// Round 1: Complete visual rewrite
+// Rounds 1-5: Visual rewrite + spread/timing/effects polish
 
 const MAP_BATTLE = {
-    PHASE_MS: { deploy: 2500, march: 7000, engage: 8000, resolve: 4500, aftermath: 6000 },
+    PHASE_MS: { deploy: 2000, march: 6000, engage: 9000, resolve: 5000, aftermath: 8000 },
     COLORS: {
         blue: { 
             fill: '#4f8ff7', stroke: '#2563eb', glow: 'rgba(79,143,247,0.25)', 
@@ -60,7 +60,8 @@ function generateArmyRoutes(fromPos, toPos, numRoutes, side) {
         numRoutes === 3 ? [0.45, 0.3, 0.25] : [0.35, 0.25, 0.25, 0.15];
     
     for (let i = 0; i < numRoutes; i++) {
-        const spread = (i - (numRoutes - 1) / 2) * Math.min(6, len * 0.3);
+        const spreadScale = len > 50 ? Math.min(15, len * 0.15) : Math.min(8, len * 0.35);
+        const spread = (i - (numRoutes - 1) / 2) * spreadScale;
         const midLat = fromPos.lat + dLat * 0.5 + perpLat * spread;
         const midLng = fromPos.lng + dLng * 0.5 + perpLng * spread;
         const isNaval = (i === numRoutes - 1) && Math.abs(dLng) > 60;
@@ -429,10 +430,10 @@ class MapBattle {
             });
             
             // Spawn particles at clash points
-            if (this.tick % 3 === 0) {
+            if (this.tick % 2 === 0) {
                 this.clashPoints.forEach(cp => {
                     const px = this.latLngToPixel(cp.lat, cp.lng);
-                    for (let i = 0; i < 2; i++) {
+                    for (let i = 0; i < 4; i++) {
                         const angle = Math.random() * Math.PI * 2;
                         const speed = 0.5 + Math.random() * 1.5;
                         this.particles.push({
@@ -461,11 +462,25 @@ class MapBattle {
             const loseRoutes = this.winner === 'left' ? this.routesR : this.routesL;
             const winRoutes = this.winner === 'left' ? this.routesL : this.routesR;
             loseRoutes.forEach(r => {
-                r.progress = Math.max(r.destroyed ? 0 : 0.1, r.progress - ep * (r.destroyed ? 0.8 : 0.5));
+                r.progress = Math.max(r.destroyed ? 0 : 0.15, r.progress - ep * (r.destroyed ? 0.7 : 0.4));
+                r._fadeAlpha = 1 - ep * 0.5; // fade out gradually
             });
             winRoutes.forEach(r => {
-                r.progress = Math.min(1.12, r.progress + ep * 0.12);
+                r.progress = Math.min(1.15, r.progress + ep * 0.15);
+                r._fadeAlpha = 1;
             });
+            // Continue spawning some particles during resolve
+            if (this.tick % 4 === 0) {
+                this.clashPoints.forEach(cp => {
+                    const px = this.latLngToPixel(cp.lat, cp.lng);
+                    const angle = Math.random() * Math.PI * 2;
+                    this.particles.push({
+                        x: px.x, y: px.y,
+                        vx: Math.cos(angle) * 0.8, vy: Math.sin(angle) * 0.8 - 0.3,
+                        life: 0.4, color: MAP_BATTLE.COLORS.smoke, size: 3 + Math.random() * 3,
+                    });
+                });
+            }
         }
     }
     
@@ -541,7 +556,9 @@ class MapBattle {
         const ctx = this.ctx;
         
         routes.forEach(route => {
-            if (route.destroyed && this.phase === 'aftermath') return;
+            // Destroyed routes fade during aftermath instead of disappearing
+            const isAftermath = this.phase === 'aftermath';
+            if (route.destroyed && isAftermath && route.progress <= 0) return;
             const prog = route.progress;
             if (prog <= 0) return;
             
@@ -561,8 +578,9 @@ class MapBattle {
             if (points.length < 2) return;
             
             // Base width tapers: thick at start, thinner toward tip
-            const baseWidth = Math.max(3, Math.min(8, route.totalTroops / 120));
-            const alpha = route.destroyed ? 0.2 : 0.85;
+            const baseWidth = Math.max(4, Math.min(10, route.totalTroops / 80));
+            const fadeAlpha = route._fadeAlpha !== undefined ? route._fadeAlpha : 1;
+            const alpha = (route.destroyed ? 0.2 : 0.85) * fadeAlpha;
             
             // Layer 1: Outer glow (very soft, wide)
             ctx.globalAlpha = alpha * 0.15;
@@ -613,6 +631,16 @@ class MapBattle {
                 ctx.lineTo(tip.x - headLen * Math.cos(angle + headWidth), tip.y - headLen * Math.sin(angle + headWidth));
                 ctx.closePath();
                 ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+            
+            // Winner glow pulse during aftermath
+            if ((this.phase === 'aftermath' || this.phase === 'resolve') && route.won) {
+                const pulse = Math.sin(this.tick * 0.06) * 0.1 + 0.2;
+                ctx.globalAlpha = pulse;
+                ctx.strokeStyle = colors.head;
+                ctx.lineWidth = baseWidth + 20;
+                this._strokeSmooth(points);
                 ctx.globalAlpha = 1;
             }
             
@@ -745,9 +773,9 @@ class MapBattle {
             const t = this.tick;
             
             // Concentric rings (expanding outward)
-            for (let ring = 0; ring < 3; ring++) {
-                const phase = ((t * 0.03 + ring * 0.33) % 1);
-                const radius = 8 + phase * 30;
+            for (let ring = 0; ring < 4; ring++) {
+                const phase = ((t * 0.025 + ring * 0.25) % 1);
+                const radius = 10 + phase * 45;
                 const alpha = (1 - phase) * cp.intensity * 0.25;
                 
                 ctx.globalAlpha = alpha;
@@ -758,8 +786,8 @@ class MapBattle {
                 ctx.stroke();
             }
             
-            // Central glow
-            const glowSize = 6 + Math.sin(t * 0.1) * 2;
+            // Central glow - larger, more dramatic
+            const glowSize = 10 + Math.sin(t * 0.08) * 4;
             const grd = ctx.createRadialGradient(px.x, px.y, 0, px.x, px.y, glowSize * 3);
             grd.addColorStop(0, `rgba(245,158,11,${0.4 * cp.intensity})`);
             grd.addColorStop(0.5, `rgba(245,158,11,${0.1 * cp.intensity})`);
