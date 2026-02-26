@@ -3,10 +3,10 @@
 
 const MAP_BATTLE = {
     UNIT_COUNT_BASE: 25,     // base units per side
-    UNIT_SIZE: 6,            // px radius
+    UNIT_SIZE: 8,            // px radius
     MARCH_SPEED: 0.003,      // lat/lng per frame
     BATTLE_RADIUS: 2,        // degrees - engagement zone
-    PHASE_MS: { march: 4000, battle: 5000, resolve: 2500 },
+    PHASE_MS: { march: 5000, battle: 6000, resolve: 3000 },
     COLORS: {
         blue: { fill: '#3b82f6', stroke: '#1d4ed8', glow: 'rgba(59,130,246,0.5)' },
         red:  { fill: '#ef4444', stroke: '#b91c1c', glow: 'rgba(239,68,68,0.5)' }
@@ -189,23 +189,26 @@ class MapBattle {
         if (!banner) {
             banner = document.createElement('div');
             banner.id = 'battleBanner';
-            banner.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:1500;background:rgba(10,14,23,0.92);backdrop-filter:blur(16px);padding:14px 32px;border-radius:12px;text-align:center;border:1px solid rgba(255,255,255,0.08);pointer-events:none;transition:opacity 0.5s;box-shadow:0 8px 30px rgba(0,0,0,0.4);';
+            banner.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:1500;background:rgba(10,14,23,0.92);backdrop-filter:blur(16px);padding:16px 36px;border-radius:14px;text-align:center;border:1px solid rgba(255,255,255,0.08);pointer-events:none;transition:all 0.5s;box-shadow:0 8px 30px rgba(0,0,0,0.4);max-width:460px;';
             document.body.appendChild(banner);
         }
-        // Shorten long titles
-        const shortTitle = title.replace('United States of America', 'USA')
+        const shortTitle = (title||'').replace('United States of America', 'USA')
             .replace('United Kingdom', 'UK')
             .replace('Democratic Republic of the Congo', 'DR Congo')
             .replace('Central African Republic', 'CAR');
-        banner.innerHTML = `<div style="font-size:18px;font-weight:700;color:#fff;letter-spacing:1px;">${shortTitle}</div><div style="font-size:12px;color:#64748b;margin-top:3px;">${subtitle}</div>`;
+        let html = `<div style="font-size:18px;font-weight:700;color:#fff;letter-spacing:1px;">${shortTitle}</div>`;
+        if (subtitle) html += `<div style="font-size:11px;color:#94a3b8;margin-top:4px;line-height:1.5;max-width:400px;">${subtitle}</div>`;
+        banner.innerHTML = html;
         banner.style.opacity = '1';
     }
     
     updateBanner(text, color, subtitle) {
         const banner = document.getElementById('battleBanner');
         if (banner) {
-            let html = `<div style="font-size:15px;font-weight:700;color:${color || '#fff'};letter-spacing:0.5px;">${text}</div>`;
-            if (subtitle) html += `<div style="font-size:11px;color:#94a3b8;margin-top:3px;max-width:400px;line-height:1.4;">${subtitle}</div>`;
+            const shortText = (text||'').replace('United States of America', 'USA')
+                .replace('United Kingdom', 'UK');
+            let html = `<div style="font-size:16px;font-weight:700;color:${color || '#fff'};letter-spacing:0.5px;">${shortText}</div>`;
+            if (subtitle) html += `<div style="font-size:11px;color:#94a3b8;margin-top:4px;max-width:400px;line-height:1.5;">${subtitle}</div>`;
             banner.innerHTML = html;
         }
     }
@@ -374,6 +377,10 @@ class MapBattle {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, this.w, this.h);
         
+        // Dark overlay for contrast during battle
+        ctx.fillStyle = 'rgba(5,8,15,0.35)';
+        ctx.fillRect(0, 0, this.w, this.h);
+        
         // Draw march path lines with animated dashes
         if (this.phase === 'march' || this.phase === 'battle') {
             ctx.lineWidth = 2;
@@ -440,10 +447,15 @@ class MapBattle {
             
             ctx.globalAlpha = 0.5 + hpRatio * 0.5;
             
-            // Always show glow for visibility
+            // Strong glow for visibility on dark map
             ctx.fillStyle = colors.glow;
             ctx.beginPath();
-            ctx.arc(px.x, px.y, s + 3, 0, Math.PI * 2);
+            ctx.arc(px.x, px.y, s + 5, 0, Math.PI * 2);
+            ctx.fill();
+            // Inner glow
+            ctx.fillStyle = colors.glow.replace('0.5)', '0.2)');
+            ctx.beginPath();
+            ctx.arc(px.x, px.y, s + 10, 0, Math.PI * 2);
             ctx.fill();
             
             // Combat flash
