@@ -1,22 +1,14 @@
-// ===== MAP-BASED BATTLE SIMULATION v3 =====
-// Premium strategy-game style visualization
-// Rounds 1-5: Visual rewrite + spread/timing/effects polish
+// ===== BATTLE SIMULATION v4 =====
+// Full-screen arena overlay - no more ugly lines on world map
+// Inspired by fighting games / strategy game battle screens
 
-const MAP_BATTLE = {
-    PHASE_MS: { deploy: 2000, march: 6000, engage: 9000, resolve: 5000, aftermath: 8000 },
+const BATTLE_CONFIG = {
+    PHASE_MS: { intro: 3000, clash: 10000, resolve: 4000, victory: 6000 },
     COLORS: {
-        blue: { 
-            fill: '#4f8ff7', stroke: '#2563eb', glow: 'rgba(79,143,247,0.25)', 
-            light: 'rgba(79,143,247,0.08)', head: '#93bbff' 
-        },
-        red: { 
-            fill: '#f06060', stroke: '#dc2626', glow: 'rgba(240,96,96,0.25)', 
-            light: 'rgba(240,96,96,0.08)', head: '#ffa0a0' 
-        },
-        clash: '#f59e0b',
-        clashGlow: 'rgba(245,158,11,0.15)',
+        blue: { main: '#4f8ff7', dark: '#1e40af', light: '#93bbff', bg: 'rgba(79,143,247,0.08)' },
+        red: { main: '#f06060', dark: '#991b1b', light: '#ffa0a0', bg: 'rgba(240,96,96,0.08)' },
+        gold: '#f59e0b',
         victory: '#34d399',
-        smoke: 'rgba(100,116,139,0.08)'
     }
 };
 
@@ -27,324 +19,303 @@ function getCountryCentroid(iso) {
         if (found) return;
         const props = layer.feature.properties;
         let layerIso = props.ISO_A3;
-        if (layerIso === '-99' && typeof ISO_FIXES !== 'undefined') {
+        if (layerIso === '-99' && typeof ISO_FIXES !== 'undefined')
             layerIso = ISO_FIXES[props.NAME] || layerIso;
-        }
         if (layerIso === iso) found = layer.getBounds().getCenter();
     });
     return found;
 }
 
-function generateArmyRoutes(fromPos, toPos, numRoutes, side) {
-    const routes = [];
-    const dLat = toPos.lat - fromPos.lat;
-    let dLng = toPos.lng - fromPos.lng;
-    if (dLng > 180) dLng -= 360;
-    if (dLng < -180) dLng += 360;
-    
-    const len = Math.sqrt(dLat * dLat + dLng * dLng);
-    const perpLat = -dLng / len;
-    const perpLng = dLat / len;
-    
-    const isAncient = typeof currentIndex !== 'undefined' && TIME_PERIODS && TIME_PERIODS[currentIndex] < 500;
-    const isMedieval = typeof currentIndex !== 'undefined' && TIME_PERIODS && TIME_PERIODS[currentIndex] >= 500 && TIME_PERIODS[currentIndex] < 1500;
-    
-    const names_en = isAncient ? ['Main Host', 'Left Wing', 'Right Wing', 'War Fleet'] :
-        isMedieval ? ['Vanguard', 'Northern Host', 'Southern Host', 'Fleet'] :
-        ['Main Army', 'Northern Front', 'Southern Front', 'Naval Fleet'];
-    const names_zh = isAncient ? ['中军', '左翼', '右翼', '水师'] :
-        isMedieval ? ['前锋', '北路军', '南路军', '水师'] :
-        ['主力军团', '北路军', '南路军', '海军舰队'];
-    
-    const forceDistribution = numRoutes === 2 ? [0.6, 0.4] :
-        numRoutes === 3 ? [0.45, 0.3, 0.25] : [0.35, 0.25, 0.25, 0.15];
-    
-    for (let i = 0; i < numRoutes; i++) {
-        const spreadScale = len > 50 ? Math.min(15, len * 0.15) : Math.min(8, len * 0.35);
-        const spread = (i - (numRoutes - 1) / 2) * spreadScale;
-        const midLat = fromPos.lat + dLat * 0.5 + perpLat * spread;
-        const midLng = fromPos.lng + dLng * 0.5 + perpLng * spread;
-        const isNaval = (i === numRoutes - 1) && Math.abs(dLng) > 60;
-        
-        routes.push({
-            id: i, 
-            name_en: isNaval ? 'Naval Force' : names_en[i] || `${i+1}th Army`,
-            name_zh: isNaval ? '海军' : names_zh[i] || `第${i+1}军`,
-            isNaval, forceRatio: forceDistribution[i] || 0.2,
-            from: { lat: fromPos.lat, lng: fromPos.lng },
-            mid: { lat: midLat, lng: midLng },
-            to: { lat: toPos.lat + perpLat * spread * 0.3, lng: toPos.lng + perpLng * spread * 0.3 },
-            progress: 0, arrived: false, engaged: false,
-            casualties: 0, totalTroops: 0, destroyed: false, won: false,
-        });
-    }
-    return routes;
-}
-
-function bezierPoint(from, mid, to, t) {
-    const u = 1 - t;
-    let lng = u * u * from.lng + 2 * u * t * mid.lng + t * t * to.lng;
-    if (lng > 180) lng -= 360;
-    if (lng < -180) lng += 360;
-    return { lat: u * u * from.lat + 2 * u * t * mid.lat + t * t * to.lat, lng };
-}
-
-// Smooth easing functions
-const ease = {
-    inOut: t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2,
-    out: t => 1 - Math.pow(1 - t, 3),
-    in: t => t * t * t,
-};
-
-class MapBattle {
-    constructor(map, leftISO, rightISO, year, data) {
-        this.map = map;
+class BattleArena {
+    constructor(leftISO, rightISO, year, data) {
         this.leftISO = leftISO;
         this.rightISO = rightISO;
         this.year = year;
         this.data = data;
-        this.phase = 'deploy';
+        this.phase = 'intro';
         this.tick = 0;
         this.running = false;
-        this.winner = null;
         this.battleLog = [];
-        this.clashPoints = [];
-        this.particles = []; // Particle system for effects
-        this.onComplete = null;
+        this.particles = [];
+        
+        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
+        this.isZh = isZh;
         
         this.nameL = typeof getLocalName !== 'undefined' ? getLocalName(leftISO) : leftISO;
         this.nameR = typeof getLocalName !== 'undefined' ? getLocalName(rightISO) : rightISO;
-        this.shortNameL = this.nameL.replace('United States of America', 'USA').replace('United Kingdom', 'UK').replace('Democratic Republic of the Congo', 'DR Congo');
-        this.shortNameR = this.nameR.replace('United States of America', 'USA').replace('United Kingdom', 'UK').replace('Democratic Republic of the Congo', 'DR Congo');
+        this.shortL = this._shorten(this.nameL);
+        this.shortR = this._shorten(this.nameR);
         
-        this.posL = getCountryCentroid(leftISO);
-        this.posR = getCountryCentroid(rightISO);
-        
-        if (!this.posL || !this.posR) {
-            console.error('Cannot find country centroids for', leftISO, rightISO);
-            this.failed = true;
-            return;
-        }
-        
-        let dLng = this.posR.lng - this.posL.lng;
-        this._crossesPacific = Math.abs(dLng) > 180;
-        if (Math.abs(dLng) > 180) dLng = dLng > 0 ? dLng - 360 : dLng + 360;
-        const dist = Math.sqrt((this.posL.lat - this.posR.lat) ** 2 + dLng ** 2);
-        this.isNeighbor = dist < 25;
-        this.distance = dist;
-        
-        this.battleLat = (this.posL.lat + this.posR.lat) / 2;
-        if (this._crossesPacific) {
-            this.battleLng = this.posL.lng + dLng / 2;
-        } else {
-            this.battleLng = this.posL.lng + dLng / 2;
-        }
-        if (this.battleLng > 180) this.battleLng -= 360;
-        if (this.battleLng < -180) this.battleLng += 360;
-        
-        if (this.isNeighbor) {
-            this.battleLat = this.posL.lat + (this.posR.lat - this.posL.lat) * 0.5;
-            this.battleLng = this.posL.lng + dLng * 0.5;
-        }
-        
+        // Force calculation
         const L = data.left, R = data.right;
         this.forceL = (L.npi || 0.1) * 60 + (L.gdp || 0) * 0.001 + Math.sqrt(L.pop || 0) * 0.0001;
         this.forceR = (R.npi || 0.1) * 60 + (R.gdp || 0) * 0.001 + Math.sqrt(R.pop || 0) * 0.0001;
         const total = this.forceL + this.forceR || 1;
         this.ratioL = this.forceL / total;
         this.ratioR = this.forceR / total;
-        this.winChance = this.ratioL + (Math.random() - 0.5) * 0.12;
-        this.winner = this.winChance > 0.5 ? 'left' : 'right';
+        this.winner = (this.ratioL + (Math.random() - 0.5) * 0.12) > 0.5 ? 'left' : 'right';
         
-        const mobilRate = this.year > 1900 ? 0.02 : (this.year > 1500 ? 0.03 : 0.05);
+        // Troops
+        const mobilRate = year > 1900 ? 0.02 : (year > 1500 ? 0.03 : 0.05);
         this.troopsL = Math.max(10, Math.min(50000, Math.round((L.pop || 100000) * mobilRate / 1000)));
         this.troopsR = Math.max(10, Math.min(50000, Math.round((R.pop || 100000) * mobilRate / 1000)));
         
-        const numRoutesL = dist > 50 ? 3 : (this.troopsL > 1000 ? 3 : 2);
-        const numRoutesR = dist > 50 ? 3 : (this.troopsR > 1000 ? 3 : 2);
+        // Army groups
+        this.armiesL = this._createArmies('left');
+        this.armiesR = this._createArmies('right');
         
-        this.routesL = generateArmyRoutes(this.posL, { lat: this.battleLat, lng: this.battleLng }, numRoutesL, 'left');
-        this.routesR = generateArmyRoutes(this.posR, { lat: this.battleLat, lng: this.battleLng }, numRoutesR, 'right');
+        // Health points (percentage)
+        this.hpL = 100;
+        this.hpR = 100;
         
-        this.routesL.forEach(r => r.totalTroops = Math.round(this.troopsL * r.forceRatio));
-        this.routesR.forEach(r => r.totalTroops = Math.round(this.troopsR * r.forceRatio));
+        // Battle momentum (-1 to 1, negative = blue winning push, positive = red winning push... wait, let's do: <0 = red advantage, >0 = blue advantage)
+        this.momentum = 0;
         
-        this.createOverlay();
-        this.createWarLog();
+        this.createUI();
     }
     
-    createOverlay() {
+    _shorten(name) {
+        return name.replace('United States of America', 'USA')
+            .replace('United Kingdom', 'UK')
+            .replace('Democratic Republic of the Congo', 'DR Congo')
+            .replace('Russian Federation', 'Russia');
+    }
+    
+    _createArmies(side) {
+        const yr = this.year;
+        const isAnc = yr < 500, isMed = yr >= 500 && yr < 1500;
+        const troops = side === 'left' ? this.troopsL : this.troopsR;
+        
+        const types = isAnc ? [
+            { name: 'Infantry', zh: '步兵', icon: '\u2694', ratio: 0.5 },
+            { name: 'Cavalry', zh: '骑兵', icon: '\u265E', ratio: 0.25 },
+            { name: 'Archers', zh: '弓箭手', icon: '\u27B3', ratio: 0.25 },
+        ] : isMed ? [
+            { name: 'Men-at-Arms', zh: '重装步兵', icon: '\u2694', ratio: 0.35 },
+            { name: 'Knights', zh: '骑士', icon: '\u265E', ratio: 0.3 },
+            { name: 'Archers', zh: '弓箭手', icon: '\u27B3', ratio: 0.2 },
+            { name: 'Siege', zh: '攻城器', icon: '\u2693', ratio: 0.15 },
+        ] : [
+            { name: 'Ground Forces', zh: '陆军', icon: '\u2694', ratio: 0.35 },
+            { name: 'Armored', zh: '装甲部队', icon: '\u265F', ratio: 0.25 },
+            { name: 'Air Force', zh: '空军', icon: '\u2708', ratio: 0.25 },
+            { name: 'Navy', zh: '海军', icon: '\u2693', ratio: 0.15 },
+        ];
+        
+        return types.map(t => ({
+            ...t,
+            troops: Math.round(troops * t.ratio),
+            hp: 100,
+            casualties: 0,
+            destroyed: false,
+        }));
+    }
+    
+    createUI() {
+        // Full-screen overlay
+        let overlay = document.getElementById('battleOverlay');
+        if (overlay) overlay.remove();
+        
+        overlay = document.createElement('div');
+        overlay.id = 'battleOverlay';
+        overlay.style.cssText = `
+            position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:2000;
+            background:rgba(5,8,18,0.96);
+            font-family:Inter,system-ui,-apple-system,sans-serif;
+            color:#e2e8f0; overflow:hidden;
+            opacity:0; transition:opacity 0.8s ease;
+        `;
+        
+        overlay.innerHTML = this._buildHTML();
+        document.body.appendChild(overlay);
+        
+        // Canvas for effects
         this.canvas = document.createElement('canvas');
-        this.canvas.id = 'mapBattleCanvas';
-        this.canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:650;pointer-events:none;';
-        this.map.getContainer().appendChild(this.canvas);
+        this.canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;';
+        overlay.appendChild(this.canvas);
         this.ctx = this.canvas.getContext('2d');
-        this.resizeCanvas();
-        this._resizeHandler = () => this.resizeCanvas();
+        
+        // Fade in
+        requestAnimationFrame(() => { overlay.style.opacity = '1'; });
+        
+        this._resizeCanvas();
+        this._resizeHandler = () => this._resizeCanvas();
         window.addEventListener('resize', this._resizeHandler);
     }
     
-    createWarLog() {
-        let panel = document.getElementById('warLogPanel');
-        if (panel) panel.remove();
-        panel = document.createElement('div');
-        panel.id = 'warLogPanel';
-        panel.style.cssText = `
-            position:fixed; top:80px; left:20px; width:280px; max-height:55vh;
-            background:rgba(8,12,24,0.92); backdrop-filter:blur(24px) saturate(1.2);
-            border:1px solid rgba(255,255,255,0.06); border-radius:16px;
-            padding:20px; z-index:1500; overflow-y:auto;
-            font-family:Inter,system-ui,sans-serif; color:#e2e8f0;
-            box-shadow:0 8px 48px rgba(0,0,0,0.6), 0 0 1px rgba(255,255,255,0.1);
-        `;
-        panel.innerHTML = `
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.05);">
-                <div style="width:3px;height:28px;background:linear-gradient(180deg,${MAP_BATTLE.COLORS.blue.fill},${MAP_BATTLE.COLORS.red.fill});border-radius:2px;"></div>
-                <div style="flex:1;">
-                    <div style="font-size:9px;color:#64748b;letter-spacing:2.5px;font-weight:600;">SITUATION REPORT</div>
-                    <div style="font-size:14px;font-weight:700;margin-top:2px;">
-                        <span style="color:${MAP_BATTLE.COLORS.blue.fill}">${this.shortNameL}</span>
-                        <span style="color:#334155;margin:0 6px;font-weight:400;">vs</span>
-                        <span style="color:${MAP_BATTLE.COLORS.red.fill}">${this.shortNameR}</span>
-                    </div>
-                </div>
-                <div style="font-size:10px;color:#475569;background:rgba(255,255,255,0.04);padding:3px 8px;border-radius:6px;">${yearLabel(this.year)}</div>
-            </div>
-            <div id="warLogForces" style="margin-bottom:14px;"></div>
-            <div id="warLogEntries" style="font-size:11px;line-height:1.7;"></div>
-        `;
-        document.body.appendChild(panel);
-        this.updateForceDisplay();
-    }
-    
-    updateForceDisplay() {
-        const el = document.getElementById('warLogForces');
-        if (!el) return;
-        const fmtK = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'M' : n + 'K';
-        const remainL = this.routesL.reduce((s, r) => s + r.totalTroops - r.casualties, 0);
-        const remainR = this.routesR.reduce((s, r) => s + r.totalTroops - r.casualties, 0);
-        const totalAll = this.troopsL + this.troopsR || 1;
-        const pctL = Math.round((remainL / totalAll) * 100);
-        const pctR = Math.round((remainR / totalAll) * 100);
-        
-        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
-        el.innerHTML = `
-            <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:6px;color:#94a3b8;">
-                <span><span style="color:${MAP_BATTLE.COLORS.blue.fill};font-weight:600;">${fmtK(remainL)}</span></span>
-                <span><span style="color:${MAP_BATTLE.COLORS.red.fill};font-weight:600;">${fmtK(remainR)}</span></span>
-            </div>
-            <div style="display:flex;height:6px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.03);gap:2px;">
-                <div style="flex:${pctL};background:linear-gradient(90deg,${MAP_BATTLE.COLORS.blue.stroke},${MAP_BATTLE.COLORS.blue.fill});border-radius:3px;transition:flex 0.8s ease;"></div>
-                <div style="flex:${pctR};background:linear-gradient(90deg,${MAP_BATTLE.COLORS.red.fill},${MAP_BATTLE.COLORS.red.stroke});border-radius:3px;transition:flex 0.8s ease;"></div>
-            </div>
-            <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-                <div>
-                    <div style="font-size:9px;color:#64748b;letter-spacing:1px;margin-bottom:4px;">${this.shortNameL}</div>
-                    ${this.routesL.map(r => `
-                        <div style="font-size:10px;color:${r.destroyed ? '#475569' : MAP_BATTLE.COLORS.blue.fill};margin:2px 0;${r.destroyed ? 'text-decoration:line-through;opacity:0.5;' : ''}display:flex;align-items:center;gap:4px;">
-                            <span style="width:4px;height:4px;border-radius:50%;background:${r.destroyed ? '#475569' : MAP_BATTLE.COLORS.blue.fill};display:inline-block;flex-shrink:0;"></span>
-                            <span>${isZh ? r.name_zh : r.name_en}</span>
-                            <span style="color:#64748b;margin-left:auto;font-size:9px;">${fmtK(Math.max(0, r.totalTroops - r.casualties))}</span>
-                        </div>
-                    `).join('')}
-                </div>
-                <div>
-                    <div style="font-size:9px;color:#64748b;letter-spacing:1px;margin-bottom:4px;">${this.shortNameR}</div>
-                    ${this.routesR.map(r => `
-                        <div style="font-size:10px;color:${r.destroyed ? '#475569' : MAP_BATTLE.COLORS.red.fill};margin:2px 0;${r.destroyed ? 'text-decoration:line-through;opacity:0.5;' : ''}display:flex;align-items:center;gap:4px;">
-                            <span style="width:4px;height:4px;border-radius:50%;background:${r.destroyed ? '#475569' : MAP_BATTLE.COLORS.red.fill};display:inline-block;flex-shrink:0;"></span>
-                            <span>${isZh ? r.name_zh : r.name_en}</span>
-                            <span style="color:#64748b;margin-left:auto;font-size:9px;">${fmtK(Math.max(0, r.totalTroops - r.casualties))}</span>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-        `;
-    }
-    
-    addLog(text, color) {
-        this.battleLog.push({ text, color: color || '#94a3b8', time: Date.now() });
-        const el = document.getElementById('warLogEntries');
-        if (el) {
-            el.innerHTML = this.battleLog.map(e =>
-                `<div style="color:${e.color};margin-bottom:6px;padding:4px 0 4px 10px;border-left:2px solid ${e.color}22;font-size:11px;line-height:1.5;">${e.text}</div>`
-            ).join('');
-            setTimeout(() => { el.scrollTop = el.scrollHeight; }, 50);
-        }
-    }
-    
-    resizeCanvas() {
-        const container = this.map.getContainer();
+    _resizeCanvas() {
         const dpr = window.devicePixelRatio || 1;
-        this.canvas.width = container.clientWidth * dpr;
-        this.canvas.height = container.clientHeight * dpr;
+        this.canvas.width = window.innerWidth * dpr;
+        this.canvas.height = window.innerHeight * dpr;
         this.ctx.scale(dpr, dpr);
-        this.w = container.clientWidth;
-        this.h = container.clientHeight;
+        this.w = window.innerWidth;
+        this.h = window.innerHeight;
     }
     
-    latLngToPixel(lat, lng) {
-        if (this._crossesPacific) {
-            const center = this.map.getCenter().lng;
-            while (lng - center > 180) lng -= 360;
-            while (lng - center < -180) lng += 360;
-        }
-        const point = this.map.latLngToContainerPoint([lat, lng]);
-        return { x: point.x, y: point.y };
+    _buildHTML() {
+        const iz = this.isZh;
+        const fmtPop = n => {
+            if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+            if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+            if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+            return n;
+        };
+        const fmtK = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'M' : n + 'K';
+        const fmtGDP = n => {
+            if (n >= 1e12) return '$' + (n / 1e12).toFixed(1) + 'T';
+            if (n >= 1e9) return '$' + (n / 1e9).toFixed(0) + 'B';
+            return '$' + (n / 1e6).toFixed(0) + 'M';
+        };
+        const L = this.data.left, R = this.data.right;
+        
+        return `
+        <style>
+            #battleOverlay * { box-sizing:border-box; margin:0; padding:0; }
+            .battle-side { position:absolute; top:0; height:100%; width:38%; display:flex; flex-direction:column; justify-content:center; padding:40px; }
+            .battle-left { left:0; align-items:flex-start; }
+            .battle-right { right:0; align-items:flex-end; text-align:right; }
+            .battle-country-name { font-size:clamp(28px,4vw,48px); font-weight:800; letter-spacing:2px; line-height:1.1; }
+            .battle-year-badge { font-size:11px; letter-spacing:3px; color:#64748b; margin-bottom:8px; }
+            .battle-stat { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:12px; color:#94a3b8; }
+            .battle-stat-value { font-weight:700; font-size:14px; }
+            .battle-army { display:flex; align-items:center; gap:6px; margin:3px 0; font-size:11px; padding:5px 10px; border-radius:6px; transition:all 0.5s; }
+            .battle-army.destroyed { opacity:0.3; text-decoration:line-through; }
+            .battle-hp-bar { height:4px; border-radius:2px; transition:width 0.5s ease; }
+            .battle-center { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; z-index:5; pointer-events:none; }
+            .battle-vs { font-size:clamp(48px,8vw,80px); font-weight:900; opacity:0.06; letter-spacing:8px; }
+            .battle-phase { font-size:12px; letter-spacing:3px; margin-top:10px; }
+            .battle-log { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); width:500px; max-height:120px; overflow-y:auto; z-index:20; }
+            .battle-log-entry { font-size:11px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); line-height:1.5; }
+            .battle-force-bar { position:absolute; top:20px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:12px; z-index:20; }
+            .battle-force-track { width:300px; height:8px; border-radius:4px; overflow:hidden; display:flex; background:rgba(255,255,255,0.03); }
+            .battle-force-fill-l { background:linear-gradient(90deg,${BATTLE_CONFIG.COLORS.blue.dark},${BATTLE_CONFIG.COLORS.blue.main}); transition:flex 0.8s ease; border-radius:4px 0 0 4px; }
+            .battle-force-fill-r { background:linear-gradient(90deg,${BATTLE_CONFIG.COLORS.red.main},${BATTLE_CONFIG.COLORS.red.dark}); transition:flex 0.8s ease; border-radius:0 4px 4px 0; }
+            .battle-btn { position:absolute; bottom:20px; right:20px; z-index:30; background:rgba(30,40,70,0.9); backdrop-filter:blur(12px); color:#e2e8f0; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px 24px; font-size:11px; font-weight:600; letter-spacing:2px; cursor:pointer; font-family:Inter,system-ui,sans-serif; display:none; transition:all 0.3s; }
+            .battle-btn:hover { background:rgba(40,55,90,0.95); }
+            .battle-divider { width:1px; height:60vh; position:absolute; top:20vh; left:50%; background:linear-gradient(180deg,transparent,rgba(255,255,255,0.04),transparent); }
+            @keyframes slideInLeft { from { transform:translateX(-60px); opacity:0; } to { transform:translateX(0); opacity:1; } }
+            @keyframes slideInRight { from { transform:translateX(60px); opacity:0; } to { transform:translateX(0); opacity:1; } }
+            .battle-left { animation:slideInLeft 1s ease 0.3s both; }
+            .battle-right { animation:slideInRight 1s ease 0.3s both; }
+        </style>
+        
+        <!-- Force bar at top -->
+        <div class="battle-force-bar">
+            <span style="color:${BATTLE_CONFIG.COLORS.blue.main};font-size:11px;font-weight:700;" id="bForceL">${fmtK(this.troopsL)}</span>
+            <div class="battle-force-track">
+                <div class="battle-force-fill-l" id="bBarL" style="flex:${Math.round(this.ratioL * 100)}"></div>
+                <div style="width:2px;background:rgba(255,255,255,0.1);flex-shrink:0;"></div>
+                <div class="battle-force-fill-r" id="bBarR" style="flex:${Math.round(this.ratioR * 100)}"></div>
+            </div>
+            <span style="color:${BATTLE_CONFIG.COLORS.red.main};font-size:11px;font-weight:700;" id="bForceR">${fmtK(this.troopsR)}</span>
+        </div>
+        
+        <!-- Left side -->
+        <div class="battle-side battle-left">
+            <div class="battle-year-badge">${yearLabel(this.year)}</div>
+            <div class="battle-country-name" style="color:${BATTLE_CONFIG.COLORS.blue.main}">${this.shortL}</div>
+            <div style="margin:16px 0 12px;display:flex;flex-direction:column;gap:4px;">
+                <div class="battle-stat"><span style="color:#64748b;">${iz ? '人口' : 'Pop'}:</span> <span class="battle-stat-value">${fmtPop(L.pop)}</span></div>
+                <div class="battle-stat"><span style="color:#64748b;">GDP:</span> <span class="battle-stat-value">${fmtGDP(L.gdp)}</span></div>
+                <div class="battle-stat"><span style="color:#64748b;">${iz ? '综合国力' : 'Strength'}:</span> <span class="battle-stat-value">${L.npi.toFixed(1)}%</span></div>
+            </div>
+            <div style="margin-top:8px;font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:6px;">${iz ? '军事力量' : 'MILITARY FORCES'}</div>
+            <div id="bArmiesL">
+                ${this.armiesL.map((a, i) => `
+                    <div class="battle-army" id="bArmyL${i}" style="background:${BATTLE_CONFIG.COLORS.blue.bg};">
+                        <span style="font-size:14px;width:20px;text-align:center;">${a.icon}</span>
+                        <span style="flex:1;color:${BATTLE_CONFIG.COLORS.blue.light};font-weight:600;">${iz ? a.zh : a.name}</span>
+                        <span style="color:#94a3b8;font-size:10px;" id="bArmyLT${i}">${fmtK(a.troops)}</span>
+                        <div style="width:40px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;">
+                            <div class="battle-hp-bar" id="bArmyLH${i}" style="width:100%;background:${BATTLE_CONFIG.COLORS.blue.main};"></div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+        
+        <!-- Right side -->
+        <div class="battle-side battle-right">
+            <div class="battle-year-badge">${yearLabel(this.year)}</div>
+            <div class="battle-country-name" style="color:${BATTLE_CONFIG.COLORS.red.main}">${this.shortR}</div>
+            <div style="margin:16px 0 12px;display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+                <div class="battle-stat"><span style="color:#64748b;">${iz ? '人口' : 'Pop'}:</span> <span class="battle-stat-value">${fmtPop(R.pop)}</span></div>
+                <div class="battle-stat"><span style="color:#64748b;">GDP:</span> <span class="battle-stat-value">${fmtGDP(R.gdp)}</span></div>
+                <div class="battle-stat"><span style="color:#64748b;">${iz ? '综合国力' : 'Strength'}:</span> <span class="battle-stat-value">${R.npi.toFixed(1)}%</span></div>
+            </div>
+            <div style="margin-top:8px;font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:6px;">${iz ? '军事力量' : 'MILITARY FORCES'}</div>
+            <div id="bArmiesR">
+                ${this.armiesR.map((a, i) => `
+                    <div class="battle-army" id="bArmyR${i}" style="background:${BATTLE_CONFIG.COLORS.red.bg};justify-content:flex-end;">
+                        <div style="width:40px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;">
+                            <div class="battle-hp-bar" id="bArmyRH${i}" style="width:100%;background:${BATTLE_CONFIG.COLORS.red.main};margin-left:auto;"></div>
+                        </div>
+                        <span style="color:#94a3b8;font-size:10px;" id="bArmyRT${i}">${fmtK(a.troops)}</span>
+                        <span style="flex:1;color:${BATTLE_CONFIG.COLORS.red.light};font-weight:600;text-align:right;">${iz ? a.zh : a.name}</span>
+                        <span style="font-size:14px;width:20px;text-align:center;">${a.icon}</span>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+        
+        <!-- Center -->
+        <div class="battle-divider"></div>
+        <div class="battle-center">
+            <div class="battle-vs">VS</div>
+            <div class="battle-phase" id="bPhase" style="color:${BATTLE_CONFIG.COLORS.gold};">${iz ? '准备中...' : 'PREPARING...'}</div>
+        </div>
+        
+        <!-- Battle log -->
+        <div class="battle-log" id="bLog"></div>
+        
+        <!-- Buttons -->
+        <button class="battle-btn" id="bAgainBtn">${iz ? '再战一场' : 'BATTLE AGAIN'}</button>
+        <button class="battle-btn" id="bCloseBtn" style="right:auto;left:20px;display:block;">${iz ? '返回地图' : 'BACK TO MAP'}</button>
+        `;
     }
     
     start(onComplete) {
-        if (this.failed) return;
         this.onComplete = onComplete;
         this.running = true;
         this.phaseStart = performance.now();
         
-        if (this._crossesPacific) {
-            this.map.setView([this.battleLat, this.battleLng], 3, { animate: true, duration: 1.5 });
-        } else {
-            const bounds = L.latLngBounds([this.posL, this.posR]);
-            this.map.fitBounds(bounds.pad(0.5), { animate: true, duration: 1.5 });
-        }
+        document.getElementById('bCloseBtn').addEventListener('click', () => this.cleanup());
+        document.getElementById('bAgainBtn').addEventListener('click', () => {
+            this.cleanup();
+            showVsModal();
+        });
         
-        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
-        this.addLog(isZh ? `${this.shortNameL} 与 ${this.shortNameR} 开战` : `War declared: ${this.shortNameL} vs ${this.shortNameR}`, '#fff');
-        this.addLog(isZh ? `${this.shortNameL} 部署 ${this.routesL.length} 路大军` : `${this.shortNameL} deploys ${this.routesL.length} army groups`, MAP_BATTLE.COLORS.blue.fill);
-        this.addLog(isZh ? `${this.shortNameR} 部署 ${this.routesR.length} 路大军` : `${this.shortNameR} deploys ${this.routesR.length} army groups`, MAP_BATTLE.COLORS.red.fill);
+        this._addLog(this.isZh ? `${this.shortL} 与 ${this.shortR} 开战！` : `War declared: ${this.shortL} vs ${this.shortR}`, '#fff');
         
-        setTimeout(() => this.animate(), 1500);
+        this.animate();
     }
     
     animate() {
         if (!this.running) return;
         const now = performance.now();
         const elapsed = now - this.phaseStart;
-        const phaseDuration = MAP_BATTLE.PHASE_MS[this.phase];
+        const phaseDuration = BATTLE_CONFIG.PHASE_MS[this.phase];
         const progress = Math.min(1, elapsed / phaseDuration);
         
         this.tick++;
-        this.update(progress);
-        this.draw();
+        this._update(progress);
+        this._draw();
         
         if (progress >= 1) {
-            const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
-            if (this.phase === 'deploy') {
-                this.phase = 'march';
+            if (this.phase === 'intro') {
+                this.phase = 'clash';
                 this.phaseStart = now;
-                this.addLog(isZh ? '各路大军开始行军' : 'All forces begin their march', '#94a3b8');
-            } else if (this.phase === 'march') {
-                this.phase = 'engage';
-                this.phaseStart = now;
-                this.addLog(isZh ? '前线接触！战斗开始！' : 'Contact! Battle engaged!', MAP_BATTLE.COLORS.clash);
-                this.createClashPoints();
-            } else if (this.phase === 'engage') {
+                this._addLog(this.isZh ? '战斗开始！' : 'Battle begins!', BATTLE_CONFIG.COLORS.gold);
+            } else if (this.phase === 'clash') {
                 this.phase = 'resolve';
                 this.phaseStart = now;
-                this.resolveOutcome();
+                this._resolveOutcome();
             } else if (this.phase === 'resolve') {
-                this.phase = 'aftermath';
+                this.phase = 'victory';
                 this.phaseStart = now;
-            } else if (this.phase === 'aftermath') {
-                this.finish();
+                this._showVictory();
+            } else if (this.phase === 'victory') {
+                this.running = false;
                 return;
             }
         }
@@ -352,702 +323,309 @@ class MapBattle {
         this.animId = requestAnimationFrame(() => this.animate());
     }
     
-    createClashPoints() {
-        // Single clash point at battle center (avoid overlapping multiples)
-        this.clashPoints = [{
-            lat: this.battleLat + (Math.random() - 0.5) * 0.5,
-            lng: this.battleLng + (Math.random() - 0.5) * 0.5,
-            intensity: 0,
-            maxIntensity: 1,
-        }];
-    }
-    
-    resolveOutcome() {
-        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
-        const winSide = this.winner;
-        const winName = winSide === 'left' ? this.shortNameL : this.shortNameR;
-        const loseName = winSide === 'left' ? this.shortNameR : this.shortNameL;
-        const winRoutes = winSide === 'left' ? this.routesL : this.routesR;
-        const loseRoutes = winSide === 'left' ? this.routesR : this.routesL;
-        const pct = Math.round(Math.max(this.ratioL, this.ratioR) * 100);
-        
-        loseRoutes.forEach(r => {
-            const lossRatio = 0.4 + Math.random() * 0.4;
-            r.casualties = Math.round(r.totalTroops * lossRatio);
-            if (lossRatio > 0.7) r.destroyed = true;
-        });
-        winRoutes.forEach(r => {
-            r.casualties = Math.round(r.totalTroops * (0.1 + Math.random() * 0.2));
-            r.won = true;
-        });
-        
-        const totalCasL = this.routesL.reduce((s, r) => s + r.casualties, 0);
-        const totalCasR = this.routesR.reduce((s, r) => s + r.casualties, 0);
-        const fmtK = n => n >= 1000 ? (n / 1000).toFixed(0) + 'M' : n + 'K';
-        
-        this.addLog(isZh ? `${winName} 获胜！` : `${winName} WINS!`, MAP_BATTLE.COLORS.victory);
-        this.addLog(isZh ? `综合国力优势：${pct}%` : `Strength advantage: ${pct}%`, '#fff');
-        this.addLog(isZh ? `伤亡：${this.shortNameL} ${fmtK(totalCasL)} / ${this.shortNameR} ${fmtK(totalCasR)}` : `Casualties: ${this.shortNameL} ${fmtK(totalCasL)} / ${this.shortNameR} ${fmtK(totalCasR)}`, '#94a3b8');
-        
-        loseRoutes.filter(r => r.destroyed).forEach(r => {
-            this.addLog(isZh ? `${loseName} ${r.name_zh} 被歼灭` : `${loseName} ${r.name_en} destroyed`, MAP_BATTLE.COLORS.red.fill);
-        });
-        
-        this.updateForceDisplay();
-    }
-    
-    update(progress) {
-        // Update particles
+    _update(progress) {
+        // Particle physics
         this.particles = this.particles.filter(p => {
-            p.life -= 0.015;
+            p.life -= 0.012;
             p.x += p.vx;
             p.y += p.vy;
-            p.vy += 0.02; // gravity
+            p.vx *= 0.99;
+            p.vy *= 0.99;
+            p.vy += 0.015;
             return p.life > 0;
         });
         
-        if (this.phase === 'deploy') {
-            const ep = ease.out(progress);
-            this.routesL.forEach(r => r.progress = ep * 0.08);
-            this.routesR.forEach(r => r.progress = ep * 0.08);
-        } else if (this.phase === 'march') {
-            const stagger = (r, i) => {
-                const delay = i * 0.08;
-                const adj = Math.max(0, (progress - delay) / (1 - delay));
-                r.progress = ease.inOut(Math.min(1, adj));
-                if (r.progress >= 0.95) r.arrived = true;
-            };
-            this.routesL.forEach(stagger);
-            this.routesR.forEach(stagger);
-            if (this.tick % 30 === 0) this.updateForceDisplay();
-        } else if (this.phase === 'engage') {
-            this.clashPoints.forEach(cp => {
-                cp.intensity = Math.min(cp.maxIntensity, cp.intensity + 0.02);
+        const iz = this.isZh;
+        const fmtK = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'M' : n + 'K';
+        
+        if (this.phase === 'intro') {
+            // Tension building
+            if (progress > 0.5 && this.tick % 60 === 0) {
+                this._addLog(iz ? '双方军队集结完毕' : 'Both armies assembled', '#94a3b8');
+            }
+        } else if (this.phase === 'clash') {
+            // Battle progresses
+            const winArmies = this.winner === 'left' ? this.armiesL : this.armiesR;
+            const loseArmies = this.winner === 'left' ? this.armiesR : this.armiesL;
+            
+            // Apply damage over time
+            loseArmies.forEach(a => {
+                if (a.destroyed) return;
+                const dmg = progress * (60 + Math.random() * 30);
+                a.hp = Math.max(0, 100 - dmg);
+                a.casualties = Math.round(a.troops * (1 - a.hp / 100));
+                if (a.hp <= 0) a.destroyed = true;
+            });
+            winArmies.forEach(a => {
+                const dmg = progress * (15 + Math.random() * 15);
+                a.hp = Math.max(5, 100 - dmg);
+                a.casualties = Math.round(a.troops * (1 - a.hp / 100));
             });
             
-            // Spawn particles at clash points
+            // Update HP bars
+            this.armiesL.forEach((a, i) => {
+                const hpEl = document.getElementById('bArmyLH' + i);
+                const tEl = document.getElementById('bArmyLT' + i);
+                const rowEl = document.getElementById('bArmyL' + i);
+                if (hpEl) hpEl.style.width = a.hp + '%';
+                if (tEl) tEl.textContent = fmtK(Math.max(0, a.troops - a.casualties));
+                if (rowEl) rowEl.classList.toggle('destroyed', a.destroyed);
+            });
+            this.armiesR.forEach((a, i) => {
+                const hpEl = document.getElementById('bArmyRH' + i);
+                const tEl = document.getElementById('bArmyRT' + i);
+                const rowEl = document.getElementById('bArmyR' + i);
+                if (hpEl) hpEl.style.width = a.hp + '%';
+                if (tEl) tEl.textContent = fmtK(Math.max(0, a.troops - a.casualties));
+                if (rowEl) rowEl.classList.toggle('destroyed', a.destroyed);
+            });
+            
+            // Update force bars
+            const remainL = this.armiesL.reduce((s, a) => s + Math.max(0, a.troops - a.casualties), 0);
+            const remainR = this.armiesR.reduce((s, a) => s + Math.max(0, a.troops - a.casualties), 0);
+            const totalR = remainL + remainR || 1;
+            document.getElementById('bBarL').style.flex = Math.round(remainL / totalR * 100);
+            document.getElementById('bBarR').style.flex = Math.round(remainR / totalR * 100);
+            document.getElementById('bForceL').textContent = fmtK(remainL);
+            document.getElementById('bForceR').textContent = fmtK(remainR);
+            
+            // Momentum shifts
+            this.momentum = (this.winner === 'left' ? 1 : -1) * progress * 0.5;
+            
+            // Spawn particles at center
             if (this.tick % 2 === 0) {
-                this.clashPoints.forEach(cp => {
-                    const px = this.latLngToPixel(cp.lat, cp.lng);
-                    for (let i = 0; i < 4; i++) {
-                        const angle = Math.random() * Math.PI * 2;
-                        const speed = 0.5 + Math.random() * 1.5;
-                        this.particles.push({
-                            x: px.x, y: px.y,
-                            vx: Math.cos(angle) * speed,
-                            vy: Math.sin(angle) * speed - 0.5,
-                            life: 0.6 + Math.random() * 0.4,
-                            color: Math.random() > 0.5 ? MAP_BATTLE.COLORS.clash : '#fff',
-                            size: 1 + Math.random() * 2,
-                        });
-                    }
-                });
+                const cx = this.w / 2, cy = this.h / 2;
+                for (let i = 0; i < 3; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = 1 + Math.random() * 3;
+                    this.particles.push({
+                        x: cx + (Math.random() - 0.5) * 60,
+                        y: cy + (Math.random() - 0.5) * 40,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed - 0.5,
+                        life: 0.5 + Math.random() * 0.5,
+                        color: Math.random() > 0.6 ? BATTLE_CONFIG.COLORS.gold : 
+                               Math.random() > 0.5 ? BATTLE_CONFIG.COLORS.blue.light : BATTLE_CONFIG.COLORS.red.light,
+                        size: 1 + Math.random() * 2.5,
+                    });
+                }
             }
             
-            const dmgRate = progress * 0.6;
-            const winRoutes = this.winner === 'left' ? this.routesL : this.routesR;
-            const loseRoutes = this.winner === 'left' ? this.routesR : this.routesL;
-            loseRoutes.forEach(r => r.casualties = Math.round(r.totalTroops * dmgRate * (0.5 + Math.random() * 0.1)));
-            winRoutes.forEach(r => r.casualties = Math.round(r.totalTroops * dmgRate * (0.1 + Math.random() * 0.05)));
-            if (this.tick % 20 === 0) this.updateForceDisplay();
+            // Phase text
+            const phaseEl = document.getElementById('bPhase');
+            if (phaseEl) {
+                if (progress < 0.3) phaseEl.textContent = iz ? '前线交火' : 'FRONTLINES ENGAGED';
+                else if (progress < 0.6) phaseEl.textContent = iz ? '激战中' : 'HEAVY FIGHTING';
+                else phaseEl.textContent = iz ? '决战时刻' : 'DECISIVE MOMENT';
+            }
             
             // Battle narration
             this._emitBattleEvent(progress);
         } else if (this.phase === 'resolve') {
-            const ep = ease.out(progress);
-            const loseRoutes = this.winner === 'left' ? this.routesR : this.routesL;
-            const winRoutes = this.winner === 'left' ? this.routesL : this.routesR;
-            loseRoutes.forEach(r => {
-                r.progress = Math.max(r.destroyed ? 0 : 0.15, r.progress - ep * (r.destroyed ? 0.7 : 0.4));
-                r._fadeAlpha = 1 - ep * 0.5; // fade out gradually
-            });
-            winRoutes.forEach(r => {
-                r.progress = Math.min(1.15, r.progress + ep * 0.15);
-                r._fadeAlpha = 1;
-            });
-            // Continue spawning some particles during resolve
-            if (this.tick % 4 === 0) {
-                this.clashPoints.forEach(cp => {
-                    const px = this.latLngToPixel(cp.lat, cp.lng);
-                    const angle = Math.random() * Math.PI * 2;
-                    this.particles.push({
-                        x: px.x, y: px.y,
-                        vx: Math.cos(angle) * 0.8, vy: Math.sin(angle) * 0.8 - 0.3,
-                        life: 0.4, color: MAP_BATTLE.COLORS.smoke, size: 3 + Math.random() * 3,
-                    });
+            // Slow particle decay
+            if (this.tick % 6 === 0) {
+                const cx = this.w / 2, cy = this.h / 2;
+                this.particles.push({
+                    x: cx + (Math.random() - 0.5) * 80,
+                    y: cy + (Math.random() - 0.5) * 60,
+                    vx: (Math.random() - 0.5) * 0.5,
+                    vy: -0.3 - Math.random() * 0.3,
+                    life: 0.8,
+                    color: 'rgba(148,163,184,0.3)',
+                    size: 2 + Math.random() * 4,
                 });
             }
         }
     }
     
     _emitBattleEvent(progress) {
-        if (this.tick % 55 !== 25 || (this._lastEventTick && this.tick - this._lastEventTick < 50)) return;
-        this._lastEventTick = this.tick;
         if (!this._usedEvents) this._usedEvents = new Set();
+        if (this.tick % 70 !== 35) return;
         
-        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
-        const winName = this.winner === 'left' ? this.shortNameL : this.shortNameR;
-        const loseName = this.winner === 'left' ? this.shortNameR : this.shortNameL;
+        const iz = this.isZh;
+        const wn = this.winner === 'left' ? this.shortL : this.shortR;
+        const ln = this.winner === 'left' ? this.shortR : this.shortL;
         const yr = this.year;
         const isAnc = yr < 500, isMed = yr >= 500 && yr < 1500;
         
-        const events = isAnc ? [
-            [`${winName} chariots charge`, `${winName} 战车冲锋`],
-            [`Arrows rain on the battlefield`, `万箭齐发`],
-            [`Infantry phalanx clashes`, `步兵方阵交锋`],
-            [`${loseName} flanks under pressure`, `${loseName} 侧翼承压`],
-            [`${winName} cavalry breaks through`, `${winName} 骑兵突破`],
+        const pool = isAnc ? [
+            [wn + ' chariots break through', wn + ' 战车突破敌阵'],
+            ['Arrow volleys darken the sky', '箭雨遮天蔽日'],
+            [ln + ' flanks crumble', ln + ' 侧翼崩溃'],
+            [wn + ' cavalry charges from the rear', wn + ' 骑兵从后方冲锋'],
+            ['The river runs red', '河水染红'],
+            [wn + ' general rallies the troops', wn + ' 将领亲自督战'],
         ] : isMed ? [
-            [`${winName} knights lead the charge`, `${winName} 骑士冲锋`],
-            [`Siege engines batter walls`, `攻城器械猛攻`],
-            [`${loseName} defenders hold firm`, `${loseName} 守军坚守`],
-            [`Cavalry clash on open field`, `骑兵旷野对决`],
-            [`${winName} seizes high ground`, `${winName} 占领高地`],
+            [wn + ' heavy cavalry smashes the line', wn + ' 重骑兵冲破防线'],
+            ['Castle walls breached', '城墙被攻破'],
+            [ln + ' reserves committed', ln + ' 投入预备队'],
+            [wn + ' archers suppress defenders', wn + ' 弓箭手压制守军'],
+            ['Supply train captured', '辎重被夺'],
+            [wn + ' siege tower reaches the wall', wn + ' 攻城塔抵达城墙'],
         ] : [
-            [`${winName} achieves air superiority`, `${winName} 取得制空权`],
-            [`${loseName} positions under bombardment`, `${loseName} 阵地遭轰炸`],
-            [`Fierce fighting along the front`, `全线激战`],
-            [`${winName} breaks through defenses`, `${winName} 突破防线`],
-            [`${loseName} orders tactical retreat`, `${loseName} 下令战术撤退`],
+            [wn + ' achieves air superiority', wn + ' 取得制空权'],
+            [ln + ' defensive line broken', ln + ' 防线被突破'],
+            ['Artillery barrage intensifies', '炮火更加猛烈'],
+            [wn + ' armor pushes through', wn + ' 装甲部队推进'],
+            [ln + ' communications disrupted', ln + ' 通讯中断'],
+            [wn + ' special forces behind enemy lines', wn + ' 特种部队渗透敌后'],
         ];
         
-        const phase = progress < 0.33 ? 'e' : progress < 0.66 ? 'm' : 'l';
-        const available = events.filter((_, i) => !this._usedEvents.has(phase + i));
+        const available = pool.filter((_, i) => !this._usedEvents.has(i));
         if (available.length > 0) {
-            const evt = available[Math.floor(Math.random() * available.length)];
-            this._usedEvents.add(phase + events.indexOf(evt));
-            this.addLog(isZh ? evt[1] : evt[0], MAP_BATTLE.COLORS.clash);
+            const pick = available[Math.floor(Math.random() * available.length)];
+            this._usedEvents.add(pool.indexOf(pick));
+            this._addLog(iz ? pick[1] : pick[0], BATTLE_CONFIG.COLORS.gold);
         }
     }
     
-    draw() {
+    _resolveOutcome() {
+        const iz = this.isZh;
+        const wn = this.winner === 'left' ? this.shortL : this.shortR;
+        const ln = this.winner === 'left' ? this.shortR : this.shortL;
+        const pct = Math.round(Math.max(this.ratioL, this.ratioR) * 100);
+        
+        const totalCasL = this.armiesL.reduce((s, a) => s + a.casualties, 0);
+        const totalCasR = this.armiesR.reduce((s, a) => s + a.casualties, 0);
+        const fmtK = n => n >= 1000 ? (n / 1000).toFixed(0) + 'M' : n + 'K';
+        
+        this._addLog('────────', '#334155');
+        this._addLog(iz ? `${wn} 获胜！` : `${wn} WINS!`, BATTLE_CONFIG.COLORS.victory);
+        this._addLog(iz ? `综合国力优势：${pct}%` : `Strength advantage: ${pct}%`, '#fff');
+        this._addLog(iz ? `伤亡：${this.shortL} ${fmtK(totalCasL)} / ${this.shortR} ${fmtK(totalCasR)}` : `Casualties: ${this.shortL} ${fmtK(totalCasL)} / ${this.shortR} ${fmtK(totalCasR)}`, '#94a3b8');
+        
+        const phaseEl = document.getElementById('bPhase');
+        if (phaseEl) {
+            phaseEl.textContent = iz ? `${wn} 获胜` : `${wn} VICTORY`;
+            phaseEl.style.color = BATTLE_CONFIG.COLORS.victory;
+            phaseEl.style.fontSize = '16px';
+        }
+    }
+    
+    _showVictory() {
+        const wn = this.winner === 'left' ? this.shortL : this.shortR;
+        const winColor = this.winner === 'left' ? BATTLE_CONFIG.COLORS.blue.main : BATTLE_CONFIG.COLORS.red.main;
+        const iz = this.isZh;
+        
+        // Show victory overlay in center
+        const center = document.querySelector('.battle-center');
+        if (center) {
+            center.innerHTML = `
+                <div style="font-size:10px;color:#64748b;letter-spacing:4px;font-weight:600;margin-bottom:8px;">${iz ? '战争结束' : 'WAR CONCLUDED'}</div>
+                <div style="font-size:clamp(36px,6vw,64px);font-weight:900;color:${winColor};letter-spacing:2px;text-shadow:0 0 40px ${winColor}33;">${wn}</div>
+                <div style="font-size:14px;color:${BATTLE_CONFIG.COLORS.victory};font-weight:700;letter-spacing:3px;margin-top:4px;">${iz ? '获胜' : 'VICTORY'}</div>
+            `;
+        }
+        
+        // Show battle again button
+        const btn = document.getElementById('bAgainBtn');
+        if (btn) btn.style.display = 'block';
+        
+        // Victory particles burst
+        const cx = this.w / 2, cy = this.h / 2;
+        for (let i = 0; i < 50; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 2 + Math.random() * 5;
+            this.particles.push({
+                x: cx, y: cy,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed - 1,
+                life: 1 + Math.random() * 0.5,
+                color: Math.random() > 0.5 ? winColor : BATTLE_CONFIG.COLORS.gold,
+                size: 2 + Math.random() * 3,
+            });
+        }
+    }
+    
+    _draw() {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, this.w, this.h);
         
-        // Very subtle dark vignette overlay
-        const vg = ctx.createRadialGradient(this.w / 2, this.h / 2, this.w * 0.3, this.w / 2, this.h / 2, this.w * 0.7);
-        vg.addColorStop(0, 'rgba(5,8,15,0)');
-        vg.addColorStop(1, 'rgba(5,8,15,0.2)');
-        ctx.fillStyle = vg;
-        ctx.fillRect(0, 0, this.w, this.h);
+        const cx = this.w / 2, cy = this.h / 2;
         
-        // Draw routes with premium style
-        this._drawRouteGroup(this.routesL, MAP_BATTLE.COLORS.blue);
-        this._drawRouteGroup(this.routesR, MAP_BATTLE.COLORS.red);
-        
-        // Draw clash effects
-        this._drawClashEffects();
-        
-        // Draw particles
-        this._drawParticles();
-        
-        // Draw origin markers
-        this._drawOrigins();
-        
-        // Top phase banner
-        this._drawPhaseBanner();
-        
-        // Bottom phase timeline
-        this._drawPhaseTimeline();
-    }
-    
-    _drawRouteGroup(routes, colors) {
-        const ctx = this.ctx;
-        
-        routes.forEach(route => {
-            // Destroyed routes fade during aftermath instead of disappearing
-            const isAftermath = this.phase === 'aftermath';
-            if (route.destroyed && isAftermath && route.progress <= 0) return;
-            const prog = route.progress;
-            if (prog <= 0) return;
-            
-            const steps = 60;
-            const maxStep = Math.floor(steps * Math.min(1, prog));
-            if (maxStep < 1) return;
-            
-            // Build path points
-            const points = [];
-            for (let i = 0; i <= maxStep; i++) {
-                const t = i / steps;
-                const pt = bezierPoint(route.from, route.mid, route.to, t);
-                const px = this.latLngToPixel(pt.lat, pt.lng);
-                points.push(px);
-            }
-            
-            if (points.length < 2) return;
-            
-            // Base width tapers: thick at start, thinner toward tip
-            const baseWidth = Math.max(4, Math.min(10, route.totalTroops / 80));
-            const fadeAlpha = route._fadeAlpha !== undefined ? route._fadeAlpha : 1;
-            const alpha = (route.destroyed ? 0.2 : 0.85) * fadeAlpha;
-            
-            // Layer 1: Outer glow (very subtle, only near origin)
-            ctx.globalAlpha = alpha * 0.06;
-            ctx.strokeStyle = colors.fill;
-            ctx.lineWidth = baseWidth + 8;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            this._strokeSmooth(points);
-            
-            // Layer 2: Inner glow (subtle)
-            ctx.globalAlpha = alpha * 0.15;
-            ctx.lineWidth = baseWidth + 3;
-            ctx.strokeStyle = colors.glow;
-            this._strokeSmooth(points);
-            
-            // Layer 3: Main line with gradient
-            ctx.globalAlpha = alpha;
-            ctx.lineWidth = baseWidth;
-            const grad = ctx.createLinearGradient(points[0].x, points[0].y, points[points.length - 1].x, points[points.length - 1].y);
-            grad.addColorStop(0, colors.stroke);
-            grad.addColorStop(0.5, colors.fill);
-            grad.addColorStop(1, colors.head);
-            ctx.strokeStyle = grad;
-            this._strokeSmooth(points);
-            
-            // Layer 4: Highlight line (thin bright center)
-            ctx.globalAlpha = alpha * 0.5;
-            ctx.lineWidth = Math.max(1, baseWidth * 0.3);
-            ctx.strokeStyle = colors.head;
-            this._strokeSmooth(points);
-            
-            ctx.globalAlpha = 1;
-            
-            // Arrowhead - sleek triangle
-            if (maxStep > 3 && !route.destroyed) {
-                const tip = points[points.length - 1];
-                const prev = points[points.length - 3];
-                const angle = Math.atan2(tip.y - prev.y, tip.x - prev.x);
-                const headLen = baseWidth * 2.5;
-                const headWidth = 0.35;
-                
-                ctx.globalAlpha = alpha;
-                ctx.fillStyle = colors.head;
-                ctx.beginPath();
-                ctx.moveTo(tip.x + Math.cos(angle) * 2, tip.y + Math.sin(angle) * 2);
-                ctx.lineTo(tip.x - headLen * Math.cos(angle - headWidth), tip.y - headLen * Math.sin(angle - headWidth));
-                ctx.lineTo(tip.x - headLen * 0.6 * Math.cos(angle), tip.y - headLen * 0.6 * Math.sin(angle));
-                ctx.lineTo(tip.x - headLen * Math.cos(angle + headWidth), tip.y - headLen * Math.sin(angle + headWidth));
-                ctx.closePath();
-                ctx.fill();
-                ctx.globalAlpha = 1;
-            }
-            
-            // Winner subtle glow pulse during aftermath
-            if ((this.phase === 'aftermath' || this.phase === 'resolve') && route.won) {
-                const pulse = Math.sin(this.tick * 0.05) * 0.04 + 0.08;
-                ctx.globalAlpha = pulse;
-                ctx.strokeStyle = colors.head;
-                ctx.lineWidth = baseWidth + 8;
-                this._strokeSmooth(points);
-                ctx.globalAlpha = 1;
-            }
-            
-            // Animated dash overlay (marching ants effect during march phase)
-            if (this.phase === 'march' && !route.destroyed) {
-                ctx.globalAlpha = 0.3;
-                ctx.setLineDash([4, 12]);
-                ctx.lineDashOffset = -this.tick * 0.8;
-                ctx.strokeStyle = '#fff';
-                ctx.lineWidth = 1;
-                this._strokeSmooth(points);
-                ctx.setLineDash([]);
-                ctx.globalAlpha = 1;
-            }
-            
-            // Route label (only during march/engage, near midpoint)
-            if ((this.phase === 'march' || this.phase === 'engage') && !route.destroyed && prog > 0.3) {
-                const labelIdx = Math.floor(points.length * 0.4);
-                const lp = points[labelIdx];
-                if (lp) {
-                    const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
-                    const label = isZh ? route.name_zh : route.name_en;
-                    const fmtK = n => n >= 1000 ? (n / 1000).toFixed(0) + 'M' : n + 'K';
-                    const troopStr = fmtK(Math.max(0, route.totalTroops - route.casualties));
-                    
-                    // Perpendicular offset to avoid overlapping the line
-                    const nextPt = points[Math.min(labelIdx + 3, points.length - 1)];
-                    const dx = nextPt.x - lp.x, dy = nextPt.y - lp.y;
-                    const perpX = -dy, perpY = dx;
-                    const pLen = Math.sqrt(perpX * perpX + perpY * perpY) || 1;
-                    const offsetDir = route.id % 2 === 0 ? 1 : -1;
-                    const offsetDist = 14 + route.id * 4;
-                    const lx = lp.x + (perpX / pLen) * offsetDist * offsetDir;
-                    const ly = lp.y + (perpY / pLen) * offsetDist * offsetDir;
-                    
-                    ctx.font = '600 9px Inter,system-ui,sans-serif';
-                    const text = `${label} ${troopStr}`;
-                    const tw = ctx.measureText(text).width + 10;
-                    
-                    ctx.globalAlpha = 0.85;
-                    ctx.fillStyle = 'rgba(8,12,24,0.85)';
-                    ctx.beginPath();
-                    ctx.roundRect(lx - tw / 2, ly - 8, tw, 16, 4);
-                    ctx.fill();
-                    
-                    ctx.fillStyle = colors.fill;
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(text, lx, ly);
-                    ctx.globalAlpha = 1;
-                }
-            }
-        });
-    }
-    
-    _strokeSmooth(points) {
-        const ctx = this.ctx;
-        if (points.length < 2) return;
-        ctx.beginPath();
-        ctx.moveTo(points[0].x, points[0].y);
-        
-        // Use quadratic curves through midpoints for smooth path
-        if (points.length === 2) {
-            ctx.lineTo(points[1].x, points[1].y);
-        } else {
-            for (let i = 0; i < points.length - 1; i++) {
-                const curr = points[i];
-                const next = points[i + 1];
-                const mx = (curr.x + next.x) / 2;
-                const my = (curr.y + next.y) / 2;
-                if (i === 0) {
-                    ctx.lineTo(mx, my);
-                } else if (i === points.length - 2) {
-                    ctx.quadraticCurveTo(curr.x, curr.y, next.x, next.y);
-                } else {
-                    ctx.quadraticCurveTo(curr.x, curr.y, mx, my);
-                }
-            }
-        }
-        ctx.stroke();
-    }
-    
-    _drawOrigins() {
-        const ctx = this.ctx;
-        
-        const drawOrigin = (pos, colors, name, troopsK) => {
-            const px = this.latLngToPixel(pos.lat, pos.lng);
-            
-            // Outer pulsing ring (radar style, subtle)
-            const pulse = Math.sin(this.tick * 0.03) * 0.1 + 0.9;
-            ctx.globalAlpha = 0.05 * pulse;
-            ctx.fillStyle = colors.fill;
-            ctx.beginPath();
-            ctx.arc(px.x, px.y, 22 * pulse, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Middle ring
-            ctx.globalAlpha = 0.12;
-            ctx.strokeStyle = colors.fill;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.arc(px.x, px.y, 20, 0, Math.PI * 2);
-            ctx.stroke();
-            
-            // Inner dot with glow
-            const igrd = ctx.createRadialGradient(px.x, px.y, 0, px.x, px.y, 8);
-            igrd.addColorStop(0, colors.head);
-            igrd.addColorStop(1, colors.fill + '00');
-            ctx.globalAlpha = 0.8;
-            ctx.fillStyle = igrd;
-            ctx.beginPath();
-            ctx.arc(px.x, px.y, 8, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = '#fff';
-            ctx.beginPath();
-            ctx.arc(px.x, px.y, 3, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Country name + troop count badge
-            const fmtK = n => n >= 1000 ? (n / 1000).toFixed(0) + 'M' : n + 'K';
-            const label = `${name}  ${fmtK(troopsK)}`;
-            ctx.font = '700 11px Inter,system-ui,sans-serif';
-            ctx.textAlign = 'center';
-            const tw = ctx.measureText(label).width + 16;
-            
-            // Badge background
-            ctx.globalAlpha = 0.9;
-            ctx.fillStyle = 'rgba(8,12,24,0.85)';
-            ctx.beginPath();
-            ctx.roundRect(px.x - tw / 2, px.y + 14, tw, 20, 6);
-            ctx.fill();
-            ctx.strokeStyle = colors.fill + '33';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-            
-            // Badge text
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = colors.fill;
-            ctx.fillText(name, px.x - 12, px.y + 24);
-            ctx.fillStyle = '#94a3b8';
-            ctx.font = '600 9px Inter,system-ui,sans-serif';
-            const nameW = ctx.measureText(name).width;
-            ctx.fillText(fmtK(troopsK), px.x + nameW / 2 + 4, px.y + 24);
-            ctx.globalAlpha = 1;
-        };
-        
-        const remainL = this.routesL.reduce((s, r) => s + r.totalTroops - r.casualties, 0);
-        const remainR = this.routesR.reduce((s, r) => s + r.totalTroops - r.casualties, 0);
-        drawOrigin(this.posL, MAP_BATTLE.COLORS.blue, this.shortNameL, remainL);
-        drawOrigin(this.posR, MAP_BATTLE.COLORS.red, this.shortNameR, remainR);
-    }
-    
-    _drawClashEffects() {
-        const ctx = this.ctx;
-        
-        this.clashPoints.forEach(cp => {
-            if (cp.intensity <= 0) return;
-            const px = this.latLngToPixel(cp.lat, cp.lng);
-            const t = this.tick;
-            
-            // Concentric rings (expanding outward, subtle)
+        // Center battle effects
+        if (this.phase === 'clash') {
+            // Expanding shockwave rings
             for (let ring = 0; ring < 3; ring++) {
-                const phase = ((t * 0.02 + ring * 0.33) % 1);
-                const radius = 8 + phase * 25;
-                const alpha = (1 - phase) * cp.intensity * 0.15;
-                
+                const phase = ((this.tick * 0.015 + ring * 0.33) % 1);
+                const radius = 20 + phase * 80;
+                const alpha = (1 - phase) * 0.08;
                 ctx.globalAlpha = alpha;
-                ctx.strokeStyle = MAP_BATTLE.COLORS.clash;
-                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = BATTLE_CONFIG.COLORS.gold;
+                ctx.lineWidth = 1;
                 ctx.beginPath();
-                ctx.arc(px.x, px.y, radius, 0, Math.PI * 2);
+                ctx.arc(cx, cy, radius, 0, Math.PI * 2);
                 ctx.stroke();
             }
             
-            // Central glow - subtle, not overwhelming
-            const glowSize = 6 + Math.sin(t * 0.08) * 2;
-            const grd = ctx.createRadialGradient(px.x, px.y, 0, px.x, px.y, glowSize * 2);
-            grd.addColorStop(0, `rgba(245,158,11,${0.25 * cp.intensity})`);
-            grd.addColorStop(0.6, `rgba(245,158,11,${0.05 * cp.intensity})`);
+            // Center glow
+            const glowPulse = Math.sin(this.tick * 0.06) * 0.3 + 0.7;
+            const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 40);
+            grd.addColorStop(0, `rgba(245,158,11,${0.08 * glowPulse})`);
             grd.addColorStop(1, 'rgba(245,158,11,0)');
             ctx.globalAlpha = 1;
             ctx.fillStyle = grd;
             ctx.beginPath();
-            ctx.arc(px.x, px.y, glowSize * 2, 0, Math.PI * 2);
+            ctx.arc(cx, cy, 40, 0, Math.PI * 2);
             ctx.fill();
             
-            // Bright core with crosshair
-            ctx.globalAlpha = cp.intensity * 0.8;
-            ctx.fillStyle = '#fef3c7';
+            // Side glow showing momentum
+            const blueX = cx - 120 - this.momentum * 60;
+            const redX = cx + 120 - this.momentum * 60;
+            
+            const blueGrd = ctx.createRadialGradient(blueX, cy, 0, blueX, cy, 60);
+            blueGrd.addColorStop(0, `rgba(79,143,247,0.06)`);
+            blueGrd.addColorStop(1, 'rgba(79,143,247,0)');
+            ctx.fillStyle = blueGrd;
             ctx.beginPath();
-            ctx.arc(px.x, px.y, 3, 0, Math.PI * 2);
+            ctx.arc(blueX, cy, 60, 0, Math.PI * 2);
             ctx.fill();
             
-            // Thin crosshair lines
-            ctx.globalAlpha = cp.intensity * 0.2;
-            ctx.strokeStyle = MAP_BATTLE.COLORS.clash;
-            ctx.lineWidth = 0.5;
+            const redGrd = ctx.createRadialGradient(redX, cy, 0, redX, cy, 60);
+            redGrd.addColorStop(0, `rgba(240,96,96,0.06)`);
+            redGrd.addColorStop(1, 'rgba(240,96,96,0)');
+            ctx.fillStyle = redGrd;
             ctx.beginPath();
-            ctx.moveTo(px.x - 20, px.y); ctx.lineTo(px.x + 20, px.y);
-            ctx.moveTo(px.x, px.y - 20); ctx.lineTo(px.x, px.y + 20);
-            ctx.stroke();
-            
-            ctx.globalAlpha = 1;
-        });
-    }
-    
-    _drawParticles() {
-        const ctx = this.ctx;
+            ctx.arc(redX, cy, 60, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Particles
         this.particles.forEach(p => {
-            ctx.globalAlpha = p.life * 0.7;
+            ctx.globalAlpha = Math.min(1, p.life) * 0.8;
             ctx.fillStyle = p.color;
             ctx.beginPath();
-            ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, p.size * Math.min(1, p.life), 0, Math.PI * 2);
             ctx.fill();
         });
+        
         ctx.globalAlpha = 1;
     }
     
-    _drawPhaseBanner() {
-        const ctx = this.ctx;
-        const cx = this.w / 2;
-        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
-        
-        let text = '', color = '#fff';
-        if (this.phase === 'deploy') {
-            text = isZh ? '部署阶段' : 'DEPLOYING FORCES';
-            color = '#94a3b8';
-        } else if (this.phase === 'march') {
-            text = isZh ? '行军中' : 'FORCES ADVANCING';
-            color = '#38bdf8';
-        } else if (this.phase === 'engage') {
-            text = isZh ? '交战中' : 'BATTLE IN PROGRESS';
-            color = MAP_BATTLE.COLORS.clash;
-        } else if (this.phase === 'resolve' || this.phase === 'aftermath') {
-            const winName = this.winner === 'left' ? this.shortNameL : this.shortNameR;
-            text = `${winName} ${isZh ? '获胜' : 'VICTORY'}`;
-            color = MAP_BATTLE.COLORS.victory;
+    _addLog(text, color) {
+        this.battleLog.push({ text, color: color || '#94a3b8' });
+        const el = document.getElementById('bLog');
+        if (el) {
+            el.innerHTML = this.battleLog.map(e =>
+                `<div class="battle-log-entry" style="color:${e.color};">${e.text}</div>`
+            ).join('');
+            el.scrollTop = el.scrollHeight;
         }
-        
-        ctx.font = '600 12px Inter,system-ui,sans-serif';
-        const tw = ctx.measureText(text).width + 40;
-        
-        // Frosted pill banner
-        ctx.fillStyle = 'rgba(8,12,24,0.8)';
-        ctx.beginPath();
-        ctx.roundRect(cx - tw / 2, 14, tw, 30, 15);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        
-        ctx.fillStyle = color;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(text, cx, 29);
-    }
-    
-    _drawPhaseTimeline() {
-        const ctx = this.ctx;
-        const phases = ['deploy', 'march', 'engage', 'resolve', 'aftermath'];
-        const phaseLabels = { deploy: 'DEPLOY', march: 'MARCH', engage: 'ENGAGE', resolve: 'RESOLVE', aftermath: 'AFTERMATH' };
-        const phaseColors = { deploy: '#64748b', march: '#38bdf8', engage: '#f59e0b', resolve: '#34d399', aftermath: '#94a3b8' };
-        
-        const totalMs = phases.reduce((s, p) => s + MAP_BATTLE.PHASE_MS[p], 0);
-        const barW = 300, barH = 4, barX = (this.w - barW) / 2, barY = this.h - 30;
-        
-        // Background
-        ctx.globalAlpha = 0.7;
-        ctx.fillStyle = 'rgba(8,12,24,0.8)';
-        ctx.beginPath();
-        ctx.roundRect(barX - 10, barY - 10, barW + 20, 28, 8);
-        ctx.fill();
-        
-        let x = barX;
-        const currentPhaseIdx = phases.indexOf(this.phase);
-        const elapsed = performance.now() - this.phaseStart;
-        
-        phases.forEach((p, i) => {
-            const w = (MAP_BATTLE.PHASE_MS[p] / totalMs) * barW;
-            
-            // Segment background
-            ctx.globalAlpha = 0.3;
-            ctx.fillStyle = phaseColors[p];
-            ctx.beginPath();
-            ctx.roundRect(x, barY, w - 1, barH, 2);
-            ctx.fill();
-            
-            // Fill if completed or current
-            if (i < currentPhaseIdx) {
-                ctx.globalAlpha = 0.8;
-                ctx.fillStyle = phaseColors[p];
-                ctx.beginPath();
-                ctx.roundRect(x, barY, w - 1, barH, 2);
-                ctx.fill();
-            } else if (i === currentPhaseIdx) {
-                const prog = Math.min(1, elapsed / MAP_BATTLE.PHASE_MS[p]);
-                ctx.globalAlpha = 0.8;
-                ctx.fillStyle = phaseColors[p];
-                ctx.beginPath();
-                ctx.roundRect(x, barY, (w - 1) * prog, barH, 2);
-                ctx.fill();
-            }
-            
-            // Label
-            ctx.globalAlpha = i <= currentPhaseIdx ? 0.9 : 0.3;
-            ctx.font = '600 7px Inter,system-ui,sans-serif';
-            ctx.fillStyle = i === currentPhaseIdx ? phaseColors[p] : '#94a3b8';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'top';
-            ctx.fillText(phaseLabels[p], x + w / 2, barY + 7);
-            
-            x += w;
-        });
-        ctx.globalAlpha = 1;
-    }
-    
-    finish() {
-        this.running = false;
-        if (this.animId) cancelAnimationFrame(this.animId);
-        this.draw();
-        
-        // Victory banner
-        const winName = this.winner === 'left' ? this.shortNameL : this.shortNameR;
-        const winColor = this.winner === 'left' ? MAP_BATTLE.COLORS.blue.fill : MAP_BATTLE.COLORS.red.fill;
-        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
-        
-        let vb = document.getElementById('victoryBanner');
-        if (!vb) {
-            vb = document.createElement('div');
-            vb.id = 'victoryBanner';
-            vb.style.cssText = `position:fixed;top:55px;left:50%;transform:translateX(-50%);z-index:1600;
-                background:rgba(8,12,24,0.92);backdrop-filter:blur(24px) saturate(1.2);
-                padding:20px 48px;border-radius:16px;text-align:center;
-                border:1px solid ${winColor}22;
-                box-shadow:0 0 60px ${winColor}15, 0 12px 40px rgba(0,0,0,0.5);
-                font-family:Inter,system-ui,sans-serif;`;
-            
-            const totalCasL = this.routesL.reduce((s, r) => s + r.casualties, 0);
-            const totalCasR = this.routesR.reduce((s, r) => s + r.casualties, 0);
-            const fmtK = n => n >= 1000 ? (n / 1000).toFixed(0) + 'M' : n + 'K';
-            const pct = Math.round(Math.max(this.ratioL, this.ratioR) * 100);
-            
-            vb.innerHTML = `
-                <div style="font-size:9px;color:#64748b;letter-spacing:3px;font-weight:600;">${isZh ? '战争结束' : 'WAR CONCLUDED'}</div>
-                <div style="font-size:26px;font-weight:800;color:${winColor};letter-spacing:1px;margin:6px 0;">${winName} ${isZh ? '获胜' : 'VICTORY'}</div>
-                <div style="font-size:11px;color:#94a3b8;line-height:1.6;">
-                    ${isZh ? '综合国力优势' : 'Strength advantage'}: ${pct}%<br>
-                    ${isZh ? '伤亡' : 'Losses'}: <span style="color:${MAP_BATTLE.COLORS.blue.fill}">${this.shortNameL} ${fmtK(totalCasL)}</span> / <span style="color:${MAP_BATTLE.COLORS.red.fill}">${this.shortNameR} ${fmtK(totalCasR)}</span>
-                </div>
-            `;
-            document.body.appendChild(vb);
-        }
-        
-        // Auto scroll war log
-        setTimeout(() => {
-            const el = document.getElementById('warLogEntries');
-            if (el) el.scrollTop = el.scrollHeight;
-            const panel = document.getElementById('warLogPanel');
-            if (panel) panel.scrollTop = panel.scrollHeight;
-        }, 200);
-        
-        // Battle again button
-        let btn = document.getElementById('battleAgainBtn');
-        if (!btn) {
-            btn = document.createElement('button');
-            btn.id = 'battleAgainBtn';
-            btn.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:1500;
-                background:rgba(30,40,70,0.9);backdrop-filter:blur(12px);
-                color:#e2e8f0;border:1px solid rgba(255,255,255,0.08);border-radius:12px;
-                padding:10px 28px;font-size:11px;font-weight:600;letter-spacing:2px;cursor:pointer;
-                font-family:Inter,system-ui,sans-serif;
-                box-shadow:0 4px 20px rgba(0,0,0,0.4);transition:all 0.3s;`;
-            btn.textContent = isZh ? '再战一场' : 'BATTLE AGAIN';
-            btn.onmouseenter = () => btn.style.background = 'rgba(40,55,90,0.95)';
-            btn.onmouseleave = () => btn.style.background = 'rgba(30,40,70,0.9)';
-            btn.addEventListener('click', () => {
-                this.cleanup();
-                btn.remove();
-                showVsModal();
-            });
-            document.body.appendChild(btn);
-        }
-        
-        // Auto cleanup after 30s
-        setTimeout(() => {
-            [this.canvas, document.getElementById('warLogPanel'), document.getElementById('victoryBanner')].forEach(el => {
-                if (el) { el.style.transition = 'opacity 1.5s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 1500); }
-            });
-            window.removeEventListener('resize', this._resizeHandler);
-            if (btn && btn.parentNode) { btn.style.transition = 'opacity 1s'; btn.style.opacity = '0'; setTimeout(() => btn.remove(), 1000); }
-            if (this.onComplete) this.onComplete(this.winner, this.ratioL, this.ratioR);
-        }, 30000);
     }
     
     cleanup() {
-        if (this.canvas) this.canvas.remove();
+        this.running = false;
+        if (this.animId) cancelAnimationFrame(this.animId);
         window.removeEventListener('resize', this._resizeHandler);
-        ['warLogPanel', 'battleBanner', 'victoryBanner'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.remove();
-        });
+        const overlay = document.getElementById('battleOverlay');
+        if (overlay) {
+            overlay.style.opacity = '0';
+            setTimeout(() => overlay.remove(), 800);
+        }
+        if (this.onComplete) this.onComplete(this.winner, this.ratioL, this.ratioR);
     }
     
     stop() {
-        this.running = false;
-        if (this.animId) cancelAnimationFrame(this.animId);
         this.cleanup();
     }
 }
@@ -1094,7 +672,6 @@ function showVsModal() {
         setupVsSearch('vsSearchLeft', 'vsDropLeft', 'vsSelectedLeft', 0);
         setupVsSearch('vsSearchRight', 'vsDropRight', 'vsSelectedRight', 1);
     }
-    
     modal.style.display = 'block';
     vsModalCountries = [null, null];
     vsModalSlot = 0;
@@ -1157,9 +734,7 @@ function updateVsModal() {
         const nL = currentNpiData[vsModalCountries[0]] || 0;
         const nR = currentNpiData[vsModalCountries[1]] || 0;
         preview.innerHTML = `<span style="color:#4f8ff7">${fmtPop(pL)}</span> pop vs <span style="color:#f06060">${fmtPop(pR)}</span> · <span style="color:#4f8ff7">${nL.toFixed(1)}%</span> str vs <span style="color:#f06060">${nR.toFixed(1)}%</span>`;
-    } else if (preview) {
-        preview.innerHTML = '';
-    }
+    } else if (preview) preview.innerHTML = '';
 }
 
 function closeVsModal() {
@@ -1177,14 +752,13 @@ function launchMapBattle(isoL, isoR) {
         right: { pop: currentPopData[isoR] || 0, gdp: currentGdpData[isoR] || 0, npi: currentNpiData[isoR] || 0 }
     };
     if (activeMapBattle) activeMapBattle.stop();
-    activeMapBattle = new MapBattle(map, isoL, isoR, year, data);
+    activeMapBattle = new BattleArena(isoL, isoR, year, data);
     activeMapBattle.start((winner, ratioL, ratioR) => { activeMapBattle = null; });
 }
 
 function setupVsSearch(inputId, dropId, selectedId, slotIdx) {
     const input = document.getElementById(inputId);
     const drop = document.getElementById(dropId);
-    
     function getCountryList() {
         const list = [];
         if (typeof COUNTRY_NAMES !== 'undefined') {
@@ -1199,7 +773,6 @@ function setupVsSearch(inputId, dropId, selectedId, slotIdx) {
         }
         return list.sort((a, b) => b.pop - a.pop);
     }
-    
     input.addEventListener('input', () => {
         const q = input.value.toLowerCase().trim();
         if (!q) { drop.style.display = 'none'; return; }
