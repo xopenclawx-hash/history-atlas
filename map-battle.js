@@ -281,11 +281,11 @@ class MapBattle {
     }
     
     addLog(text, color) {
-        this.battleLog.push({text, color: color || '#94a3b8', time: Date.now()});
+        this.battleLog.push({text, color: color || '#94a3b8', phase: this.phase});
         const el = document.getElementById('warLogEntries');
         if (el) {
             el.innerHTML = this.battleLog.map(e => 
-                `<div style="color:${e.color};margin-bottom:4px;padding-left:8px;border-left:2px solid ${e.color}22;">${e.text}</div>`
+                `<div style="color:${e.color};margin-bottom:5px;padding-left:10px;border-left:2px solid ${e.color}33;font-size:11px;line-height:1.5;">${e.text}</div>`
             ).join('');
             el.scrollTop = el.scrollHeight;
         }
@@ -339,8 +339,12 @@ class MapBattle {
             ? `${this.shortNameR} 部署 ${this.routesR.length} 路大军`
             : `${this.shortNameR} deploys ${this.routesR.length} army groups`, MAP_BATTLE.COLORS.red.fill);
         
-        if (this.distance > 50) {
-            this.addLog(isZh ? '海军舰队起航，横跨大洋' : 'Naval fleets set sail across the ocean', '#64748b');
+        const hasNaval = this.routesL.some(r => r.isNaval) || this.routesR.some(r => r.isNaval);
+        if (hasNaval) {
+            const yr = this.year;
+            this.addLog(isZh 
+                ? (yr < 1500 ? '水师船队启航' : '海军舰队起航，横跨大洋') 
+                : (yr < 1500 ? 'War fleets set sail' : 'Naval fleets set sail across the ocean'), '#64748b');
         }
         
         setTimeout(() => this.animate(), 1500);
