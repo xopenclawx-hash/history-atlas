@@ -32,7 +32,9 @@ function generateArmyRoutes(fromPos, toPos, numRoutes, side) {
     const routes = [];
     const dLat = toPos.lat - fromPos.lat;
     let dLng = toPos.lng - fromPos.lng;
-    if (Math.abs(dLng) > 180) dLng = dLng > 0 ? dLng - 360 : dLng + 360;
+    // Handle date line crossing (go shorter way)
+    if (dLng > 180) dLng -= 360;
+    if (dLng < -180) dLng += 360;
     
     // Perpendicular direction for spread
     const len = Math.sqrt(dLat*dLat + dLng*dLng);
@@ -85,9 +87,13 @@ function generateArmyRoutes(fromPos, toPos, numRoutes, side) {
 // Bezier interpolation for curved army paths
 function bezierPoint(from, mid, to, t) {
     const u = 1 - t;
+    let lng = u*u*from.lng + 2*u*t*mid.lng + t*t*to.lng;
+    // Normalize longitude
+    if (lng > 180) lng -= 360;
+    if (lng < -180) lng += 360;
     return {
         lat: u*u*from.lat + 2*u*t*mid.lat + t*t*to.lat,
-        lng: u*u*from.lng + 2*u*t*mid.lng + t*t*to.lng
+        lng
     };
 }
 
@@ -128,9 +134,15 @@ class MapBattle {
         this.isNeighbor = dist < 25;
         this.distance = dist;
         
-        // Battle midpoint
+        // Battle midpoint -- handle Pacific crossing for CHN-USA etc
         this.battleLat = (this.posL.lat + this.posR.lat) / 2;
-        this.battleLng = this.posL.lng + dLng / 2;
+        // If crossing date line, go via Pacific (shorter route)
+        if (Math.abs(dLng) > 180) {
+            const adj = dLng > 0 ? dLng - 360 : dLng + 360;
+            this.battleLng = this.posL.lng + adj / 2;
+        } else {
+            this.battleLng = this.posL.lng + dLng / 2;
+        }
         if (this.battleLng > 180) this.battleLng -= 360;
         if (this.battleLng < -180) this.battleLng += 360;
         
@@ -506,8 +518,8 @@ class MapBattle {
             const maxStep = Math.floor(steps * prog);
             
             // Arrow body: thick line along path
-            const width = Math.max(3, Math.min(8, route.totalTroops / 150));
-            const alpha = route.destroyed ? 0.2 : 0.7;
+            const width = Math.max(4, Math.min(12, route.totalTroops / 80));
+            const alpha = route.destroyed ? 0.3 : 0.9;
             
             ctx.beginPath();
             ctx.strokeStyle = colors.fill;
@@ -528,8 +540,8 @@ class MapBattle {
             // Glow line underneath
             ctx.beginPath();
             ctx.strokeStyle = colors.glow;
-            ctx.lineWidth = width + 6;
-            ctx.globalAlpha = alpha * 0.3;
+            ctx.lineWidth = width + 10;
+            ctx.globalAlpha = alpha * 0.4;
             
             for (let i = 0; i <= maxStep; i++) {
                 const t = i / steps;
@@ -551,7 +563,7 @@ class MapBattle {
                 const px2 = this.latLngToPixel(p2.lat, p2.lng);
                 
                 const angle = Math.atan2(px2.y - px1.y, px2.x - px1.x);
-                const headLen = width * 2.5;
+                const headLen = width * 3;
                 
                 ctx.fillStyle = colors.fill;
                 ctx.beginPath();
@@ -565,7 +577,7 @@ class MapBattle {
                 if (this.phase !== 'aftermath') {
                     const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
                     const label = isZh ? route.name_zh : route.name_en;
-                    ctx.font = '600 9px Inter, sans-serif';
+                    ctx.font = '700 11px Inter, sans-serif';
                     ctx.fillStyle = colors.fill;
                     ctx.globalAlpha = 0.8;
                     ctx.textAlign = 'center';
@@ -669,7 +681,8 @@ class MapBattle {
         }
         
         // Banner background
-        const bannerW = Math.max(200, ctx.measureText(phaseText).width + 60);
+        ctx.font = '700 14px Inter, sans-serif';
+        const bannerW = Math.max(240, ctx.measureText(phaseText).width + 80);
         ctx.fillStyle = 'rgba(10,14,23,0.85)';
         ctx.beginPath();
         ctx.roundRect(cx - bannerW/2, 10, bannerW, 36, 10);
@@ -703,12 +716,18 @@ class MapBattle {
             document.body.appendChild(againBtn);
         }
         
-        // Auto cleanup after 10 seconds
+        // Auto cleanup after 20 seconds (keep results visible longer)
         setTimeout(() => {
-            this.cleanup();
+            if (this.canvas) this.canvas.remove();
+            window.removeEventListener('resize', this._resizeHandler);
+            // Keep war log visible for another 10s
+            setTimeout(() => {
+                const panel = document.getElementById('warLogPanel');
+                if (panel) { panel.style.transition = 'opacity 1s'; panel.style.opacity = '0'; setTimeout(() => panel.remove(), 1000); }
+            }, 10000);
             if (againBtn && againBtn.parentNode) againBtn.remove();
             if (this.onComplete) this.onComplete(this.winner, this.ratioL, this.ratioR);
-        }, 10000);
+        }, 20000);
     }
     
     cleanup() {
