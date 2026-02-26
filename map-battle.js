@@ -580,31 +580,43 @@ function vsModalSelect(side) {
 function vsModalPickCountry(iso) {
     if (!vsModalSelecting) return;
     vsModalCountries[vsModalSlot] = iso;
+    
+    // Update the search UI for this slot
+    const side = vsModalSlot === 0 ? 'Left' : 'Right';
+    const sel = document.getElementById('vsSelected' + side);
+    const input = document.getElementById('vsSearch' + side);
+    const drop = document.getElementById('vsDrop' + side);
+    if (sel && input) {
+        sel.textContent = typeof getLocalName !== 'undefined' ? getLocalName(iso) : iso;
+        sel.style.display = 'block';
+        sel.style.color = vsModalSlot === 0 ? '#3b82f6' : '#ef4444';
+        sel.onclick = () => { vsModalCountries[vsModalSlot === 0 ? 0 : 1] = null; sel.style.display = 'none'; input.style.display = ''; input.value = ''; updateVsModal(); };
+        input.style.display = 'none';
+        if (drop) drop.style.display = 'none';
+    }
+    
     vsModalSlot = vsModalSlot === 0 ? 1 : 0;
     updateVsModal();
 }
 
 function updateVsModal() {
-    const leftSlot = document.getElementById('vsModalLeft');
-    const rightSlot = document.getElementById('vsModalRight');
+    // Update search-based selection display
+    [0, 1].forEach(idx => {
+        const side = idx === 0 ? 'Left' : 'Right';
+        const sel = document.getElementById('vsSelected' + side);
+        const input = document.getElementById('vsSearch' + side);
+        if (sel && input && vsModalCountries[idx]) {
+            sel.textContent = typeof getLocalName !== 'undefined' ? getLocalName(vsModalCountries[idx]) : vsModalCountries[idx];
+            sel.style.display = 'block';
+            sel.style.color = idx === 0 ? '#3b82f6' : '#ef4444';
+            input.style.display = 'none';
+        }
+    });
     
-    if (vsModalCountries[0]) {
-        leftSlot.innerHTML = `<div class="vs-modal-slot-name" style="color:#3b82f6">${getLocalName(vsModalCountries[0])}</div>`;
-    } else {
-        leftSlot.innerHTML = `<div class="vs-modal-slot-label">${typeof currentLang !== 'undefined' && currentLang === 'zh' ? '点击地图选择' : 'Click map to select'}</div>`;
-    }
-    
-    if (vsModalCountries[1]) {
-        rightSlot.innerHTML = `<div class="vs-modal-slot-name" style="color:#ef4444">${getLocalName(vsModalCountries[1])}</div>`;
-    } else {
-        rightSlot.innerHTML = `<div class="vs-modal-slot-label">${typeof currentLang !== 'undefined' && currentLang === 'zh' ? '点击地图选择' : 'Click map to select'}</div>`;
-    }
-    
-    leftSlot.classList.toggle('active', vsModalSlot === 0);
-    rightSlot.classList.toggle('active', vsModalSlot === 1);
-    
-    document.getElementById('vsModalYear').textContent = yearLabel(TIME_PERIODS[currentIndex]);
-    document.getElementById('vsModalGo').disabled = !(vsModalCountries[0] && vsModalCountries[1]);
+    const yearEl = document.getElementById('vsModalYear');
+    if (yearEl) yearEl.textContent = yearLabel(TIME_PERIODS[currentIndex]);
+    const goBtn = document.getElementById('vsModalGo');
+    if (goBtn) goBtn.disabled = !(vsModalCountries[0] && vsModalCountries[1]);
     
     // Show stat preview
     const preview = document.getElementById('vsModalPreview');
