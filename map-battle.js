@@ -494,19 +494,25 @@ class MapBattle {
                 const loseName = winSide === 'left' ? this.shortNameR : this.shortNameL;
                 
                 const earlyEvents = [
-                    [`${winName} forces push through the center`, `${winName} 主力突破中央防线`],
-                    [`${loseName} defensive positions under heavy fire`, `${loseName} 防御阵地遭受猛烈攻击`],
+                    [`${winName} Main Army engages the front line`, `${winName} 主力军团与前线接战`],
+                    [`${loseName} defensive positions under bombardment`, `${loseName} 防御阵地遭到轰炸`],
                     [`Fierce fighting along the entire front`, `全线激战`],
+                    [`${winName} Northern Front advances rapidly`, `${winName} 北路军快速推进`],
+                    [`Skirmishes along the border intensify`, `边境冲突加剧`],
                 ];
                 const midEvents = [
-                    [`${winName} flanking maneuver succeeds`, `${winName} 侧翼迂回成功`],
-                    [`${loseName} reserves committed to battle`, `${loseName} 投入预备队`],
-                    [`Supply lines threatened`, `补给线受到威胁`],
+                    [`${winName} Southern Front outflanks enemy positions`, `${winName} 南路军迂回敌军侧翼`],
+                    [`${loseName} commits reserve forces to the battle`, `${loseName} 投入预备队`],
+                    [`${loseName} supply lines under attack`, `${loseName} 补给线遭到袭击`],
+                    [`${winName} achieves air superiority`, `${winName} 取得制空权`],
+                    [`Bitter house-to-house fighting reported`, `巷战激烈`],
                 ];
                 const lateEvents = [
-                    [`${loseName} lines beginning to collapse`, `${loseName} 防线开始崩溃`],
-                    [`${winName} breaks through! Pursuit begins`, `${winName} 突破成功！开始追击`],
-                    [`${loseName} forces in retreat`, `${loseName} 部队撤退中`],
+                    [`${loseName} front lines collapsing`, `${loseName} 前线全面崩溃`],
+                    [`${winName} breaks through! Pursuit begins`, `${winName} 突破成功！全线追击`],
+                    [`${loseName} orders general retreat`, `${loseName} 下令全面撤退`],
+                    [`${winName} encircles ${loseName} rear guard`, `${winName} 包围了${loseName}后卫部队`],
+                    [`${loseName} surrenders significant territory`, `${loseName} 丢失大片领土`],
                 ];
                 
                 const pool = progress < 0.33 ? earlyEvents : progress < 0.66 ? midEvents : lateEvents;
@@ -806,9 +812,17 @@ class MapBattle {
                 border:1px solid ${winColor}33;
                 box-shadow:0 0 40px ${winColor}22, 0 8px 30px rgba(0,0,0,0.4);
                 font-family:Inter,sans-serif;transition:opacity 1s;`;
+            const totalCasL = this.routesL.reduce((s,r) => s + r.casualties, 0);
+            const totalCasR = this.routesR.reduce((s,r) => s + r.casualties, 0);
+            const fmtK3 = n => n >= 1000 ? (n/1000).toFixed(0) + 'M' : n + 'K';
+            const pct = Math.round(Math.max(this.ratioL, this.ratioR) * 100);
             victoryBanner.innerHTML = `
-                <div style="font-size:11px;color:#64748b;letter-spacing:3px;margin-bottom:4px;">${isZh ? '战争结束' : 'WAR CONCLUDED'}</div>
-                <div style="font-size:22px;font-weight:800;color:${winColor};letter-spacing:2px;">${winName} ${isZh ? '获胜' : 'VICTORY'}</div>
+                <div style="font-size:10px;color:#64748b;letter-spacing:3px;margin-bottom:4px;">${isZh ? '战争结束' : 'WAR CONCLUDED'}</div>
+                <div style="font-size:24px;font-weight:800;color:${winColor};letter-spacing:2px;margin-bottom:6px;">${winName} ${isZh ? '获胜' : 'VICTORY'}</div>
+                <div style="font-size:11px;color:#94a3b8;">
+                    ${isZh ? '综合国力优势' : 'Strength advantage'}: ${pct}% | 
+                    ${isZh ? '伤亡' : 'Losses'}: ${this.shortNameL} ${fmtK3(totalCasL)} / ${this.shortNameR} ${fmtK3(totalCasR)}
+                </div>
             `;
             document.body.appendChild(victoryBanner);
         }
