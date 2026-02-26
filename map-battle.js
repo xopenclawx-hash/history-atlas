@@ -4,9 +4,9 @@
 const MAP_BATTLE = {
     UNIT_COUNT_BASE: 25,     // base units per side
     UNIT_SIZE: 8,            // px radius
-    MARCH_SPEED: 0.003,      // lat/lng per frame
+    MARCH_SPEED: 0.005,      // lat/lng per frame
     BATTLE_RADIUS: 2,        // degrees - engagement zone
-    PHASE_MS: { march: 5000, battle: 6000, resolve: 3000 },
+    PHASE_MS: { march: 5000, battle: 6000, resolve: 3000, aftermath: 4000 },
     COLORS: {
         blue: { fill: '#3b82f6', stroke: '#1d4ed8', glow: 'rgba(59,130,246,0.5)' },
         red:  { fill: '#ef4444', stroke: '#b91c1c', glow: 'rgba(239,68,68,0.5)' }
@@ -249,6 +249,9 @@ class MapBattle {
                     winColor
                 );
             } else if (this.phase === 'resolve') {
+                this.phase = 'aftermath';
+                this.phaseStart = now;
+            } else if (this.phase === 'aftermath' && elapsed > 4000) {
                 this.finish();
                 return;
             }
@@ -410,13 +413,15 @@ class MapBattle {
         this.drawUnits('left', MAP_BATTLE.COLORS.blue);
         this.drawUnits('right', MAP_BATTLE.COLORS.red);
         
-        // Draw particles
+        // Draw particles with varying sizes
         this.particles.forEach(p => {
             const px = this.latLngToPixel(p.lat, p.lng);
-            ctx.globalAlpha = p.life / 20;
+            const alpha = p.life / 20;
+            ctx.globalAlpha = alpha;
             ctx.fillStyle = p.color;
+            const size = 1.5 + (1 - alpha) * 3; // grow as they fade
             ctx.beginPath();
-            ctx.arc(px.x, px.y, 2, 0, Math.PI * 2);
+            ctx.arc(px.x, px.y, size, 0, Math.PI * 2);
             ctx.fill();
             ctx.globalAlpha = 1;
         });
@@ -424,17 +429,32 @@ class MapBattle {
         // Casualty counter
         const deadL = this.units.left.filter(u => u.dead).length;
         const deadR = this.units.right.filter(u => u.dead).length;
-        // Casualty counter with labels
-        ctx.font = '600 11px Inter, sans-serif';
+        // Casualty counter with background pill
         const nameL = typeof getLocalName !== 'undefined' ? getLocalName(this.leftISO) : this.leftISO;
         const nameR = typeof getLocalName !== 'undefined' ? getLocalName(this.rightISO) : this.rightISO;
         
+        // Left pill
+        const lText = `${nameL.slice(0,10)}  ${this.unitCountL - deadL}/${this.unitCountL}`;
+        ctx.font = '600 11px Inter, sans-serif';
+        const lWidth = ctx.measureText(lText).width + 16;
+        ctx.fillStyle = 'rgba(10,14,23,0.75)';
+        ctx.beginPath();
+        ctx.roundRect(8, this.h - 30, lWidth, 22, 6);
+        ctx.fill();
         ctx.fillStyle = MAP_BATTLE.COLORS.blue.fill;
         ctx.textAlign = 'left';
-        ctx.fillText(`${nameL.slice(0,12)} ${this.unitCountL - deadL}/${this.unitCountL}`, 12, this.h - 12);
+        ctx.fillText(lText, 16, this.h - 15);
+        
+        // Right pill  
+        const rText = `${this.unitCountR - deadR}/${this.unitCountR}  ${nameR.slice(0,10)}`;
+        const rWidth = ctx.measureText(rText).width + 16;
+        ctx.fillStyle = 'rgba(10,14,23,0.75)';
+        ctx.beginPath();
+        ctx.roundRect(this.w - rWidth - 8, this.h - 30, rWidth, 22, 6);
+        ctx.fill();
         ctx.fillStyle = MAP_BATTLE.COLORS.red.fill;
         ctx.textAlign = 'right';
-        ctx.fillText(`${this.unitCountR - deadR}/${this.unitCountR} ${nameR.slice(0,12)}`, this.w - 12, this.h - 12);
+        ctx.fillText(rText, this.w - 16, this.h - 15);
     }
     
     drawUnits(side, colors) {
