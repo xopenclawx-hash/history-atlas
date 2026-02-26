@@ -465,19 +465,33 @@ class MapBattle {
             
             if (this.tick % 20 === 0) this.updateForceDisplay();
             
-            // Add battle events
-            if (this.tick % 60 === 30) {
+            // Add contextual battle events
+            if (this.tick % 50 === 25 && !this._lastEventTick || this.tick - this._lastEventTick > 40) {
+                this._lastEventTick = this.tick;
                 const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
-                const events_en = [
-                    'Heavy fighting on the front line',
-                    'Artillery exchange intensifies',
-                    'Flanking maneuver attempted',
-                    'Defensive line under pressure',
-                    'Reinforcements deployed'
+                const winSide = this.winner;
+                const winName = winSide === 'left' ? this.shortNameL : this.shortNameR;
+                const loseName = winSide === 'left' ? this.shortNameR : this.shortNameL;
+                
+                const earlyEvents = [
+                    [`${winName} forces push through the center`, `${winName} 主力突破中央防线`],
+                    [`${loseName} defensive positions under heavy fire`, `${loseName} 防御阵地遭受猛烈攻击`],
+                    [`Fierce fighting along the entire front`, `全线激战`],
                 ];
-                const events_zh = ['前线激战','炮火交换加剧','侧翼机动','防线承压','增援部队抵达'];
-                const idx = Math.floor(Math.random() * events_en.length);
-                this.addLog(isZh ? events_zh[idx] : events_en[idx], MAP_BATTLE.COLORS.clash);
+                const midEvents = [
+                    [`${winName} flanking maneuver succeeds`, `${winName} 侧翼迂回成功`],
+                    [`${loseName} reserves committed to battle`, `${loseName} 投入预备队`],
+                    [`Supply lines threatened`, `补给线受到威胁`],
+                ];
+                const lateEvents = [
+                    [`${loseName} lines beginning to collapse`, `${loseName} 防线开始崩溃`],
+                    [`${winName} breaks through! Pursuit begins`, `${winName} 突破成功！开始追击`],
+                    [`${loseName} forces in retreat`, `${loseName} 部队撤退中`],
+                ];
+                
+                const pool = progress < 0.33 ? earlyEvents : progress < 0.66 ? midEvents : lateEvents;
+                const evt = pool[Math.floor(Math.random() * pool.length)];
+                this.addLog(isZh ? evt[1] : evt[0], MAP_BATTLE.COLORS.clash);
             }
         }
         else if (this.phase === 'resolve') {
@@ -666,15 +680,26 @@ class MapBattle {
             ctx.arc(px.x, px.y, 3, 0, Math.PI * 2);
             ctx.fill();
             
-            // Sparks during engage phase
-            if (this.phase === 'engage' && this.tick % 3 === 0) {
-                ctx.fillStyle = MAP_BATTLE.COLORS.clash;
-                for (let i = 0; i < 3; i++) {
-                    const angle = Math.random() * Math.PI * 2;
-                    const dist = size + Math.random() * 10;
-                    ctx.globalAlpha = 0.6;
+            // Sparks and explosion effects during engage phase
+            if (this.phase === 'engage') {
+                // Continuous sparks
+                if (this.tick % 2 === 0) {
+                    ctx.fillStyle = MAP_BATTLE.COLORS.clash;
+                    for (let i = 0; i < 5; i++) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const dist = size + Math.random() * 15;
+                        ctx.globalAlpha = 0.4 + Math.random() * 0.4;
+                        ctx.beginPath();
+                        ctx.arc(px.x + Math.cos(angle)*dist, px.y + Math.sin(angle)*dist, 1 + Math.random()*2, 0, Math.PI*2);
+                        ctx.fill();
+                    }
+                }
+                // Occasional flash
+                if (this.tick % 20 < 3) {
+                    ctx.globalAlpha = 0.15;
+                    ctx.fillStyle = '#fff';
                     ctx.beginPath();
-                    ctx.arc(px.x + Math.cos(angle)*dist, px.y + Math.sin(angle)*dist, 1.5, 0, Math.PI*2);
+                    ctx.arc(px.x, px.y, size + 20, 0, Math.PI * 2);
                     ctx.fill();
                 }
                 ctx.globalAlpha = 1;
