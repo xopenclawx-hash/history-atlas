@@ -528,10 +528,10 @@ class MapBattle {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, this.w, this.h);
         
-        // Subtle dark vignette overlay
-        const vg = ctx.createRadialGradient(this.w / 2, this.h / 2, this.w * 0.2, this.w / 2, this.h / 2, this.w * 0.7);
-        vg.addColorStop(0, 'rgba(5,8,15,0.05)');
-        vg.addColorStop(1, 'rgba(5,8,15,0.35)');
+        // Very subtle dark vignette overlay
+        const vg = ctx.createRadialGradient(this.w / 2, this.h / 2, this.w * 0.3, this.w / 2, this.h / 2, this.w * 0.7);
+        vg.addColorStop(0, 'rgba(5,8,15,0)');
+        vg.addColorStop(1, 'rgba(5,8,15,0.2)');
         ctx.fillStyle = vg;
         ctx.fillRect(0, 0, this.w, this.h);
         
@@ -585,17 +585,17 @@ class MapBattle {
             const fadeAlpha = route._fadeAlpha !== undefined ? route._fadeAlpha : 1;
             const alpha = (route.destroyed ? 0.2 : 0.85) * fadeAlpha;
             
-            // Layer 1: Outer glow (very soft, wide)
-            ctx.globalAlpha = alpha * 0.15;
+            // Layer 1: Outer glow (very subtle, only near origin)
+            ctx.globalAlpha = alpha * 0.06;
             ctx.strokeStyle = colors.fill;
-            ctx.lineWidth = baseWidth + 16;
+            ctx.lineWidth = baseWidth + 8;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
             this._strokeSmooth(points);
             
-            // Layer 2: Inner glow
-            ctx.globalAlpha = alpha * 0.3;
-            ctx.lineWidth = baseWidth + 6;
+            // Layer 2: Inner glow (subtle)
+            ctx.globalAlpha = alpha * 0.15;
+            ctx.lineWidth = baseWidth + 3;
             ctx.strokeStyle = colors.glow;
             this._strokeSmooth(points);
             
@@ -637,12 +637,12 @@ class MapBattle {
                 ctx.globalAlpha = 1;
             }
             
-            // Winner glow pulse during aftermath
+            // Winner subtle glow pulse during aftermath
             if ((this.phase === 'aftermath' || this.phase === 'resolve') && route.won) {
-                const pulse = Math.sin(this.tick * 0.06) * 0.1 + 0.2;
+                const pulse = Math.sin(this.tick * 0.05) * 0.04 + 0.08;
                 ctx.globalAlpha = pulse;
                 ctx.strokeStyle = colors.head;
-                ctx.lineWidth = baseWidth + 20;
+                ctx.lineWidth = baseWidth + 8;
                 this._strokeSmooth(points);
                 ctx.globalAlpha = 1;
             }
@@ -732,12 +732,12 @@ class MapBattle {
         const drawOrigin = (pos, colors, name, troopsK) => {
             const px = this.latLngToPixel(pos.lat, pos.lng);
             
-            // Outer pulsing ring (radar style)
-            const pulse = Math.sin(this.tick * 0.03) * 0.15 + 0.85;
-            ctx.globalAlpha = 0.08 * pulse;
+            // Outer pulsing ring (radar style, subtle)
+            const pulse = Math.sin(this.tick * 0.03) * 0.1 + 0.9;
+            ctx.globalAlpha = 0.05 * pulse;
             ctx.fillStyle = colors.fill;
             ctx.beginPath();
-            ctx.arc(px.x, px.y, 28 * pulse, 0, Math.PI * 2);
+            ctx.arc(px.x, px.y, 22 * pulse, 0, Math.PI * 2);
             ctx.fill();
             
             // Middle ring
@@ -806,11 +806,11 @@ class MapBattle {
             const px = this.latLngToPixel(cp.lat, cp.lng);
             const t = this.tick;
             
-            // Concentric rings (expanding outward)
-            for (let ring = 0; ring < 4; ring++) {
-                const phase = ((t * 0.025 + ring * 0.25) % 1);
-                const radius = 10 + phase * 45;
-                const alpha = (1 - phase) * cp.intensity * 0.25;
+            // Concentric rings (expanding outward, subtle)
+            for (let ring = 0; ring < 3; ring++) {
+                const phase = ((t * 0.02 + ring * 0.33) % 1);
+                const radius = 8 + phase * 25;
+                const alpha = (1 - phase) * cp.intensity * 0.15;
                 
                 ctx.globalAlpha = alpha;
                 ctx.strokeStyle = MAP_BATTLE.COLORS.clash;
@@ -820,16 +820,16 @@ class MapBattle {
                 ctx.stroke();
             }
             
-            // Central glow - larger, more dramatic
-            const glowSize = 10 + Math.sin(t * 0.08) * 4;
-            const grd = ctx.createRadialGradient(px.x, px.y, 0, px.x, px.y, glowSize * 3);
-            grd.addColorStop(0, `rgba(245,158,11,${0.4 * cp.intensity})`);
-            grd.addColorStop(0.5, `rgba(245,158,11,${0.1 * cp.intensity})`);
+            // Central glow - subtle, not overwhelming
+            const glowSize = 6 + Math.sin(t * 0.08) * 2;
+            const grd = ctx.createRadialGradient(px.x, px.y, 0, px.x, px.y, glowSize * 2);
+            grd.addColorStop(0, `rgba(245,158,11,${0.25 * cp.intensity})`);
+            grd.addColorStop(0.6, `rgba(245,158,11,${0.05 * cp.intensity})`);
             grd.addColorStop(1, 'rgba(245,158,11,0)');
             ctx.globalAlpha = 1;
             ctx.fillStyle = grd;
             ctx.beginPath();
-            ctx.arc(px.x, px.y, glowSize * 3, 0, Math.PI * 2);
+            ctx.arc(px.x, px.y, glowSize * 2, 0, Math.PI * 2);
             ctx.fill();
             
             // Bright core with crosshair
