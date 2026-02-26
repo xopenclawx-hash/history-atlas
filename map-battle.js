@@ -79,16 +79,16 @@ class BattleArena {
             this.units.push({
                 side: 'left', x: 0, y: 0, targetX: 0, targetY: 0,
                 hp: 100, alive: true, attacking: false, attackTimer: 0,
-                size: 8 + Math.random() * 4, speed: 0.5 + Math.random() * 0.5,
-                row: i % 3, col: Math.floor(i / 3),
+                size: 14 + Math.random() * 6, speed: 0.5 + Math.random() * 0.5,
+                row: i % 4, col: Math.floor(i / 4),
             });
         }
         for (let i = 0; i < unitCountR; i++) {
             this.units.push({
                 side: 'right', x: 0, y: 0, targetX: 0, targetY: 0,
                 hp: 100, alive: true, attacking: false, attackTimer: 0,
-                size: 8 + Math.random() * 4, speed: 0.5 + Math.random() * 0.5,
-                row: i % 3, col: Math.floor(i / 3),
+                size: 14 + Math.random() * 6, speed: 0.5 + Math.random() * 0.5,
+                row: i % 4, col: Math.floor(i / 4),
             });
         }
         
@@ -213,8 +213,8 @@ class BattleArena {
             .battle-force-fill-r { background:linear-gradient(90deg,${MAP_BATTLE_CFG.COLORS.red.main},${MAP_BATTLE_CFG.COLORS.red.dark}); transition:flex 0.8s ease; border-radius:0 4px 4px 0; }
             .battle-btn { position:absolute; z-index:30; background:rgba(30,40,70,0.9); backdrop-filter:blur(12px); color:#e2e8f0; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px 24px; font-size:11px; font-weight:600; letter-spacing:2px; cursor:pointer; font-family:Inter,system-ui,sans-serif; display:none; transition:all 0.3s; }
             .battle-btn:hover { background:rgba(40,55,90,0.95); }
-            #bAgainBtn { bottom:20px; right:20px; }
-            #bCloseBtn { bottom:20px; left:20px; display:block !important; opacity:0.5; }
+            #bAgainBtn { bottom:24px; right:50%; transform:translateX(calc(50% + 60px)); }
+            #bCloseBtn { bottom:24px; left:50%; transform:translateX(calc(-50% - 60px)); display:block !important; opacity:0.5; }
             #bCloseBtn:hover { opacity:1; }
             .battle-divider { width:1px; height:60vh; position:absolute; top:20vh; left:50%; background:linear-gradient(180deg,transparent,rgba(255,255,255,0.04),transparent); }
             .battle-bg-pattern { position:absolute;top:0;left:0;width:100%;height:100%;opacity:0.015;background:repeating-linear-gradient(45deg,transparent,transparent 40px,rgba(255,255,255,0.5) 40px,rgba(255,255,255,0.5) 41px);pointer-events:none; }
@@ -530,22 +530,22 @@ class BattleArena {
     
     _updateUnits(progress) {
         const cx = this.w / 2, cy = this.h / 2;
-        const spacing = 16;
+        const spacing = 24;
         
         this.units.forEach(u => {
             if (!u.alive) return;
             
             if (this.phase === 'intro') {
                 // Units gather in formation on their side
-                const baseX = u.side === 'left' ? cx - 180 : cx + 180;
-                const baseY = cy - 30 + u.row * spacing;
-                const colOffset = u.col * spacing * (u.side === 'left' ? -1 : 1);
+                const baseX = u.side === 'left' ? cx - 160 : cx + 160;
+                const baseY = cy - 45 + u.row * spacing;
+                const colOffset = u.col * (spacing + 4) * (u.side === 'left' ? -1 : 1);
                 u.targetX = baseX + colOffset;
                 u.targetY = baseY;
             } else if (this.phase === 'clash') {
-                // Units advance toward center, then engage
-                const advanceX = u.side === 'left' ? cx - 60 + u.col * 12 : cx + 60 - u.col * 12;
-                const baseY = cy - 30 + u.row * spacing;
+                // Units advance toward center, then engage  
+                const advanceX = u.side === 'left' ? cx - 50 + u.col * 16 : cx + 50 - u.col * 16;
+                const baseY = cy - 45 + u.row * spacing;
                 u.targetX = advanceX;
                 u.targetY = baseY + (Math.sin(this.tick * 0.05 + u.row) * 3);
                 
@@ -703,9 +703,9 @@ class BattleArena {
             `;
         }
         
-        // Show battle again button
+        // Show battle again button with fade
         const btn = document.getElementById('bAgainBtn');
-        if (btn) btn.style.display = 'block';
+        if (btn) { btn.style.display = 'block'; btn.style.opacity = '0'; setTimeout(() => { btn.style.transition = 'opacity 0.5s'; btn.style.opacity = '1'; }, 100); }
         
         // Victory confetti burst
         const cxV = this.w / 2, cyV = this.h / 2;
@@ -730,6 +730,20 @@ class BattleArena {
         ctx.clearRect(0, 0, this.w, this.h);
         
         const cx = this.w / 2, cy = this.h / 2;
+        
+        // Terrain hints in battle area (subtle horizontal lines)
+        if (this.phase === 'clash' || this.phase === 'resolve') {
+            ctx.globalAlpha = 0.02;
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 0.5;
+            for (let i = -3; i <= 3; i++) {
+                ctx.beginPath();
+                ctx.moveTo(cx - 200, cy + i * 20);
+                ctx.lineTo(cx + 200, cy + i * 20);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+        }
         
         // Ambient floating dust particles
         if (this.tick % 8 === 0) {
@@ -801,6 +815,18 @@ class BattleArena {
             ctx.fillStyle = redGrd;
             ctx.beginPath();
             ctx.arc(redX, cy, 60, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Clash zone glow behind units
+        if (this.phase === 'clash' || this.phase === 'resolve') {
+            const zoneGrd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 120);
+            zoneGrd.addColorStop(0, 'rgba(245,158,11,0.04)');
+            zoneGrd.addColorStop(0.5, 'rgba(245,158,11,0.02)');
+            zoneGrd.addColorStop(1, 'rgba(245,158,11,0)');
+            ctx.fillStyle = zoneGrd;
+            ctx.beginPath();
+            ctx.ellipse(cx, cy, 140, 80, 0, 0, Math.PI * 2);
             ctx.fill();
         }
         
