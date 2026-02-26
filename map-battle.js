@@ -201,10 +201,12 @@ class MapBattle {
         banner.style.opacity = '1';
     }
     
-    updateBanner(text, color) {
+    updateBanner(text, color, subtitle) {
         const banner = document.getElementById('battleBanner');
         if (banner) {
-            banner.innerHTML = `<div style="font-size:14px;font-weight:700;color:${color || '#fff'};letter-spacing:0.5px;">${text}</div>`;
+            let html = `<div style="font-size:15px;font-weight:700;color:${color || '#fff'};letter-spacing:0.5px;">${text}</div>`;
+            if (subtitle) html += `<div style="font-size:11px;color:#94a3b8;margin-top:3px;max-width:400px;line-height:1.4;">${subtitle}</div>`;
+            banner.innerHTML = html;
         }
     }
     
@@ -515,25 +517,31 @@ function showVsModal() {
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'vsModal';
+        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
         modal.innerHTML = `
             <div class="vs-modal-backdrop"></div>
             <div class="vs-modal-content">
-                <div class="vs-modal-title">${typeof currentLang !== 'undefined' && currentLang === 'zh' ? '选择对战双方' : 'SELECT COMBATANTS'}</div>
+                <div class="vs-modal-title">${isZh ? '选择对战双方' : 'SELECT COMBATANTS'}</div>
                 <div class="vs-modal-row">
-                    <div class="vs-modal-slot" id="vsModalLeft" onclick="vsModalSelect('left')">
-                        <div class="vs-modal-slot-label">${typeof currentLang !== 'undefined' && currentLang === 'zh' ? '点击地图选择' : 'Click map to select'}</div>
+                    <div class="vs-modal-search-wrap">
+                        <input type="text" class="vs-modal-search" id="vsSearchLeft" placeholder="${isZh ? '搜索国家...' : 'Search country...'}" autocomplete="off">
+                        <div class="vs-modal-dropdown" id="vsDropLeft"></div>
+                        <div class="vs-modal-selected" id="vsSelectedLeft" style="display:none"></div>
                     </div>
                     <div class="vs-modal-vs">VS</div>
-                    <div class="vs-modal-slot" id="vsModalRight" onclick="vsModalSelect('right')">
-                        <div class="vs-modal-slot-label">${typeof currentLang !== 'undefined' && currentLang === 'zh' ? '点击地图选择' : 'Click map to select'}</div>
+                    <div class="vs-modal-search-wrap">
+                        <input type="text" class="vs-modal-search" id="vsSearchRight" placeholder="${isZh ? '搜索国家...' : 'Search country...'}" autocomplete="off">
+                        <div class="vs-modal-dropdown" id="vsDropRight"></div>
+                        <div class="vs-modal-selected" id="vsSelectedRight" style="display:none"></div>
                     </div>
                 </div>
                 <div class="vs-modal-year" id="vsModalYear">${yearLabel(TIME_PERIODS[currentIndex])}</div>
+                <div id="vsModalPreview" style="font-size:10px;color:#64748b;margin:6px 0;min-height:20px;text-align:center;"></div>
                 <button class="vs-modal-go" id="vsModalGo" disabled>
-                    ${typeof currentLang !== 'undefined' && currentLang === 'zh' ? '开战' : 'START BATTLE'}
+                    ${isZh ? '开战' : 'START BATTLE'}
                 </button>
                 <button class="vs-modal-cancel" onclick="closeVsModal()">
-                    ${typeof currentLang !== 'undefined' && currentLang === 'zh' ? '取消' : 'CANCEL'}
+                    ${isZh ? '取消' : 'CANCEL'}
                 </button>
             </div>
         `;
@@ -546,11 +554,9 @@ function showVsModal() {
             }
         });
         
-        // Add stat preview div
-        const preview = document.createElement('div');
-        preview.id = 'vsModalPreview';
-        preview.style.cssText = 'font-size:10px;color:#64748b;margin:8px 0;min-height:36px;';
-        modal.querySelector('.vs-modal-content').insertBefore(preview, document.getElementById('vsModalGo'));
+        // Setup search dropdowns
+        setupVsSearch('vsSearchLeft', 'vsDropLeft', 'vsSelectedLeft', 0);
+        setupVsSearch('vsSearchRight', 'vsDropRight', 'vsSelectedRight', 1);
     }
     
     modal.style.display = 'block';
@@ -637,4 +643,68 @@ function launchMapBattle(isoL, isoR) {
         // Battle complete - show result
         activeMapBattle = null;
     });
+}
+
+function setupVsSearch(inputId, dropId, selectedId, slotIdx) {
+    const input = document.getElementById(inputId);
+    const drop = document.getElementById(dropId);
+    
+    // Get all countries with data
+    function getCountryList() {
+        const list = [];
+        if (typeof COUNTRY_NAMES !== 'undefined') {
+            Object.keys(COUNTRY_NAMES).forEach(iso => {
+                const pop = currentPopData[iso] || 0;
+                if (pop > 0) {
+                    const en = COUNTRY_NAMES[iso] || iso;
+                    const cn = (typeof CN_NAMES !== 'undefined' && CN_NAMES[iso]) || en;
+                    list.push({iso, en, cn, pop});
+                }
+            });
+        }
+        return list.sort((a, b) => b.pop - a.pop);
+    }
+    
+    input.addEventListener('input', () => {
+        const q = input.value.toLowerCase().trim();
+        if (!q) { drop.style.display = 'none'; return; }
+        
+        const countries = getCountryList();
+        const matches = countries.filter(c => 
+            c.en.toLowerCase().includes(q) || c.cn.includes(q) || c.iso.toLowerCase().includes(q)
+        ).slice(0, 8);
+        
+        if (matches.length === 0) { drop.style.display = 'none'; return; }
+        
+        drop.innerHTML = matches.map(c => {
+            const name = typeof currentLang !== 'undefined' && currentLang === 'zh' ? c.cn : c.en;
+            const popStr = typeof formatPopShort !== 'undefined' ? formatPopShort(c.pop) : c.pop;
+            return `<div class="vs-drop-item" data-iso="${c.iso}"><span>${name}</span><span style="color:#475569;font-size:10px">${popStr}</span></div>`;
+        }).join('');
+        drop.style.display = 'block';
+        
+        drop.querySelectorAll('.vs-drop-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const iso = item.dataset.iso;
+                vsModalCountries[slotIdx] = iso;
+                input.style.display = 'none';
+                const sel = document.getElementById(selectedId);
+                sel.textContent = typeof getLocalName !== 'undefined' ? getLocalName(iso) : iso;
+                sel.style.display = 'block';
+                sel.style.color = slotIdx === 0 ? '#3b82f6' : '#ef4444';
+                sel.onclick = () => { 
+                    vsModalCountries[slotIdx] = null; 
+                    sel.style.display = 'none'; 
+                    input.style.display = ''; 
+                    input.value = ''; 
+                    updateVsModal(); 
+                };
+                drop.style.display = 'none';
+                updateVsModal();
+            });
+        });
+    });
+    
+    input.addEventListener('focus', () => { if (input.value) input.dispatchEvent(new Event('input')); });
+    document.addEventListener('click', (e) => { if (!e.target.closest('.vs-modal-search-wrap')) drop.style.display = 'none'; });
 }
