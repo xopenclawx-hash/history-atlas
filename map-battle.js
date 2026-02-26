@@ -207,21 +207,26 @@ class MapBattle {
         panel = document.createElement('div');
         panel.id = 'warLogPanel';
         panel.style.cssText = `
-            position:fixed; top:60px; left:16px; width:280px; max-height:60vh;
-            background:rgba(10,14,23,0.92); backdrop-filter:blur(16px);
-            border:1px solid rgba(255,255,255,0.08); border-radius:14px;
-            padding:16px; z-index:1500; overflow-y:auto;
+            position:fixed; top:60px; left:16px; width:300px; max-height:65vh;
+            background:rgba(8,12,20,0.94); backdrop-filter:blur(20px);
+            border:1px solid rgba(56,189,248,0.1); border-radius:14px;
+            padding:18px; z-index:1500; overflow-y:auto;
             font-family:Inter,sans-serif; color:#e2e8f0;
-            box-shadow:0 8px 30px rgba(0,0,0,0.4);
+            box-shadow:0 0 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.03);
         `;
         panel.innerHTML = `
-            <div style="font-size:11px;color:#64748b;letter-spacing:2px;margin-bottom:8px;">WAR REPORT</div>
-            <div style="font-size:16px;font-weight:700;margin-bottom:4px;">
-                <span style="color:${MAP_BATTLE.COLORS.blue.fill}">${this.shortNameL}</span>
-                <span style="color:#64748b;margin:0 6px;">vs</span>
-                <span style="color:${MAP_BATTLE.COLORS.red.fill}">${this.shortNameR}</span>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                <div style="width:3px;height:24px;background:linear-gradient(${MAP_BATTLE.COLORS.blue.fill},${MAP_BATTLE.COLORS.red.fill});border-radius:2px;"></div>
+                <div>
+                    <div style="font-size:10px;color:#475569;letter-spacing:2px;">SITUATION REPORT</div>
+                    <div style="font-size:15px;font-weight:700;">
+                        <span style="color:${MAP_BATTLE.COLORS.blue.fill}">${this.shortNameL}</span>
+                        <span style="color:#334155;margin:0 5px;">vs</span>
+                        <span style="color:${MAP_BATTLE.COLORS.red.fill}">${this.shortNameR}</span>
+                    </div>
+                </div>
+                <div style="margin-left:auto;font-size:10px;color:#475569;">${yearLabel(this.year)}</div>
             </div>
-            <div style="font-size:10px;color:#475569;margin-bottom:12px;">${yearLabel(this.year)}</div>
             <div id="warLogForces" style="margin-bottom:12px;"></div>
             <div id="warLogEntries" style="font-size:11px;line-height:1.6;"></div>
         `;
@@ -245,10 +250,10 @@ class MapBattle {
                 <span style="color:${MAP_BATTLE.COLORS.blue.fill}">${fmtK(remainL)} troops</span>
                 <span style="color:${MAP_BATTLE.COLORS.red.fill}">${fmtK(remainR)} troops</span>
             </div>
-            <div style="display:flex;height:6px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.05);">
-                <div style="width:${blueW}px;background:${MAP_BATTLE.COLORS.blue.fill};transition:width 0.5s;"></div>
-                <div style="width:2px;background:rgba(255,255,255,0.2);"></div>
-                <div style="width:${redW}px;background:${MAP_BATTLE.COLORS.red.fill};transition:width 0.5s;"></div>
+            <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.04);">
+                <div style="width:${blueW}px;background:linear-gradient(90deg,${MAP_BATTLE.COLORS.blue.stroke},${MAP_BATTLE.COLORS.blue.fill});transition:width 0.5s;border-radius:4px 0 0 4px;"></div>
+                <div style="width:2px;background:rgba(255,255,255,0.15);"></div>
+                <div style="width:${redW}px;background:linear-gradient(90deg,${MAP_BATTLE.COLORS.red.fill},${MAP_BATTLE.COLORS.red.stroke});transition:width 0.5s;border-radius:0 4px 4px 0;"></div>
             </div>
             <div style="margin-top:8px;">
                 <div style="font-size:10px;color:#64748b;margin:6px 0 2px;letter-spacing:1px;">${this.shortNameL}</div>
