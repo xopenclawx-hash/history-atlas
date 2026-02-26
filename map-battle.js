@@ -2,7 +2,7 @@
 // Full-screen arena overlay - no more ugly lines on world map
 // Inspired by fighting games / strategy game battle screens
 
-const BATTLE_CONFIG = {
+const MAP_BATTLE_CFG = {
     PHASE_MS: { intro: 3000, clash: 10000, resolve: 4000, victory: 6000 },
     COLORS: {
         blue: { main: '#4f8ff7', dark: '#1e40af', light: '#93bbff', bg: 'rgba(79,143,247,0.08)' },
@@ -188,8 +188,8 @@ class BattleArena {
             .battle-log-entry { font-size:11px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); line-height:1.5; }
             .battle-force-bar { position:absolute; top:20px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:12px; z-index:20; }
             .battle-force-track { width:300px; height:8px; border-radius:4px; overflow:hidden; display:flex; background:rgba(255,255,255,0.03); }
-            .battle-force-fill-l { background:linear-gradient(90deg,${BATTLE_CONFIG.COLORS.blue.dark},${BATTLE_CONFIG.COLORS.blue.main}); transition:flex 0.8s ease; border-radius:4px 0 0 4px; }
-            .battle-force-fill-r { background:linear-gradient(90deg,${BATTLE_CONFIG.COLORS.red.main},${BATTLE_CONFIG.COLORS.red.dark}); transition:flex 0.8s ease; border-radius:0 4px 4px 0; }
+            .battle-force-fill-l { background:linear-gradient(90deg,${MAP_BATTLE_CFG.COLORS.blue.dark},${MAP_BATTLE_CFG.COLORS.blue.main}); transition:flex 0.8s ease; border-radius:4px 0 0 4px; }
+            .battle-force-fill-r { background:linear-gradient(90deg,${MAP_BATTLE_CFG.COLORS.red.main},${MAP_BATTLE_CFG.COLORS.red.dark}); transition:flex 0.8s ease; border-radius:0 4px 4px 0; }
             .battle-btn { position:absolute; bottom:20px; right:20px; z-index:30; background:rgba(30,40,70,0.9); backdrop-filter:blur(12px); color:#e2e8f0; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px 24px; font-size:11px; font-weight:600; letter-spacing:2px; cursor:pointer; font-family:Inter,system-ui,sans-serif; display:none; transition:all 0.3s; }
             .battle-btn:hover { background:rgba(40,55,90,0.95); }
             .battle-divider { width:1px; height:60vh; position:absolute; top:20vh; left:50%; background:linear-gradient(180deg,transparent,rgba(255,255,255,0.04),transparent); }
@@ -201,19 +201,19 @@ class BattleArena {
         
         <!-- Force bar at top -->
         <div class="battle-force-bar">
-            <span style="color:${BATTLE_CONFIG.COLORS.blue.main};font-size:11px;font-weight:700;" id="bForceL">${fmtK(this.troopsL)}</span>
+            <span style="color:${MAP_BATTLE_CFG.COLORS.blue.main};font-size:11px;font-weight:700;" id="bForceL">${fmtK(this.troopsL)}</span>
             <div class="battle-force-track">
                 <div class="battle-force-fill-l" id="bBarL" style="flex:${Math.round(this.ratioL * 100)}"></div>
                 <div style="width:2px;background:rgba(255,255,255,0.1);flex-shrink:0;"></div>
                 <div class="battle-force-fill-r" id="bBarR" style="flex:${Math.round(this.ratioR * 100)}"></div>
             </div>
-            <span style="color:${BATTLE_CONFIG.COLORS.red.main};font-size:11px;font-weight:700;" id="bForceR">${fmtK(this.troopsR)}</span>
+            <span style="color:${MAP_BATTLE_CFG.COLORS.red.main};font-size:11px;font-weight:700;" id="bForceR">${fmtK(this.troopsR)}</span>
         </div>
         
         <!-- Left side -->
         <div class="battle-side battle-left">
             <div class="battle-year-badge">${yearLabel(this.year)}</div>
-            <div class="battle-country-name" style="color:${BATTLE_CONFIG.COLORS.blue.main}">${this.shortL}</div>
+            <div class="battle-country-name" style="color:${MAP_BATTLE_CFG.COLORS.blue.main}">${this.shortL}</div>
             <div style="margin:16px 0 12px;display:flex;flex-direction:column;gap:4px;">
                 <div class="battle-stat"><span style="color:#64748b;">${iz ? '人口' : 'Pop'}:</span> <span class="battle-stat-value">${fmtPop(L.pop)}</span></div>
                 <div class="battle-stat"><span style="color:#64748b;">GDP:</span> <span class="battle-stat-value">${fmtGDP(L.gdp)}</span></div>
@@ -222,12 +222,12 @@ class BattleArena {
             <div style="margin-top:8px;font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:6px;">${iz ? '军事力量' : 'MILITARY FORCES'}</div>
             <div id="bArmiesL">
                 ${this.armiesL.map((a, i) => `
-                    <div class="battle-army" id="bArmyL${i}" style="background:${BATTLE_CONFIG.COLORS.blue.bg};">
+                    <div class="battle-army" id="bArmyL${i}" style="background:${MAP_BATTLE_CFG.COLORS.blue.bg};">
                         <span style="font-size:14px;width:20px;text-align:center;">${a.icon}</span>
-                        <span style="flex:1;color:${BATTLE_CONFIG.COLORS.blue.light};font-weight:600;">${iz ? a.zh : a.name}</span>
+                        <span style="flex:1;color:${MAP_BATTLE_CFG.COLORS.blue.light};font-weight:600;">${iz ? a.zh : a.name}</span>
                         <span style="color:#94a3b8;font-size:10px;" id="bArmyLT${i}">${fmtK(a.troops)}</span>
                         <div style="width:40px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;">
-                            <div class="battle-hp-bar" id="bArmyLH${i}" style="width:100%;background:${BATTLE_CONFIG.COLORS.blue.main};"></div>
+                            <div class="battle-hp-bar" id="bArmyLH${i}" style="width:100%;background:${MAP_BATTLE_CFG.COLORS.blue.main};"></div>
                         </div>
                     </div>
                 `).join('')}
@@ -237,7 +237,7 @@ class BattleArena {
         <!-- Right side -->
         <div class="battle-side battle-right">
             <div class="battle-year-badge">${yearLabel(this.year)}</div>
-            <div class="battle-country-name" style="color:${BATTLE_CONFIG.COLORS.red.main}">${this.shortR}</div>
+            <div class="battle-country-name" style="color:${MAP_BATTLE_CFG.COLORS.red.main}">${this.shortR}</div>
             <div style="margin:16px 0 12px;display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
                 <div class="battle-stat"><span style="color:#64748b;">${iz ? '人口' : 'Pop'}:</span> <span class="battle-stat-value">${fmtPop(R.pop)}</span></div>
                 <div class="battle-stat"><span style="color:#64748b;">GDP:</span> <span class="battle-stat-value">${fmtGDP(R.gdp)}</span></div>
@@ -246,12 +246,12 @@ class BattleArena {
             <div style="margin-top:8px;font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:6px;">${iz ? '军事力量' : 'MILITARY FORCES'}</div>
             <div id="bArmiesR">
                 ${this.armiesR.map((a, i) => `
-                    <div class="battle-army" id="bArmyR${i}" style="background:${BATTLE_CONFIG.COLORS.red.bg};justify-content:flex-end;">
+                    <div class="battle-army" id="bArmyR${i}" style="background:${MAP_BATTLE_CFG.COLORS.red.bg};justify-content:flex-end;">
                         <div style="width:40px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;">
-                            <div class="battle-hp-bar" id="bArmyRH${i}" style="width:100%;background:${BATTLE_CONFIG.COLORS.red.main};margin-left:auto;"></div>
+                            <div class="battle-hp-bar" id="bArmyRH${i}" style="width:100%;background:${MAP_BATTLE_CFG.COLORS.red.main};margin-left:auto;"></div>
                         </div>
                         <span style="color:#94a3b8;font-size:10px;" id="bArmyRT${i}">${fmtK(a.troops)}</span>
-                        <span style="flex:1;color:${BATTLE_CONFIG.COLORS.red.light};font-weight:600;text-align:right;">${iz ? a.zh : a.name}</span>
+                        <span style="flex:1;color:${MAP_BATTLE_CFG.COLORS.red.light};font-weight:600;text-align:right;">${iz ? a.zh : a.name}</span>
                         <span style="font-size:14px;width:20px;text-align:center;">${a.icon}</span>
                     </div>
                 `).join('')}
@@ -262,7 +262,7 @@ class BattleArena {
         <div class="battle-divider"></div>
         <div class="battle-center">
             <div class="battle-vs">VS</div>
-            <div class="battle-phase" id="bPhase" style="color:${BATTLE_CONFIG.COLORS.gold};">${iz ? '准备中...' : 'PREPARING...'}</div>
+            <div class="battle-phase" id="bPhase" style="color:${MAP_BATTLE_CFG.COLORS.gold};">${iz ? '准备中...' : 'PREPARING...'}</div>
         </div>
         
         <!-- Battle log -->
@@ -294,7 +294,7 @@ class BattleArena {
         if (!this.running) return;
         const now = performance.now();
         const elapsed = now - this.phaseStart;
-        const phaseDuration = BATTLE_CONFIG.PHASE_MS[this.phase];
+        const phaseDuration = MAP_BATTLE_CFG.PHASE_MS[this.phase];
         const progress = Math.min(1, elapsed / phaseDuration);
         
         this.tick++;
@@ -305,7 +305,7 @@ class BattleArena {
             if (this.phase === 'intro') {
                 this.phase = 'clash';
                 this.phaseStart = now;
-                this._addLog(this.isZh ? '战斗开始！' : 'Battle begins!', BATTLE_CONFIG.COLORS.gold);
+                this._addLog(this.isZh ? '战斗开始！' : 'Battle begins!', MAP_BATTLE_CFG.COLORS.gold);
             } else if (this.phase === 'clash') {
                 this.phase = 'resolve';
                 this.phaseStart = now;
@@ -404,8 +404,8 @@ class BattleArena {
                         vx: Math.cos(angle) * speed,
                         vy: Math.sin(angle) * speed - 0.5,
                         life: 0.5 + Math.random() * 0.5,
-                        color: Math.random() > 0.6 ? BATTLE_CONFIG.COLORS.gold : 
-                               Math.random() > 0.5 ? BATTLE_CONFIG.COLORS.blue.light : BATTLE_CONFIG.COLORS.red.light,
+                        color: Math.random() > 0.6 ? MAP_BATTLE_CFG.COLORS.gold : 
+                               Math.random() > 0.5 ? MAP_BATTLE_CFG.COLORS.blue.light : MAP_BATTLE_CFG.COLORS.red.light,
                         size: 1 + Math.random() * 2.5,
                     });
                 }
@@ -475,7 +475,7 @@ class BattleArena {
         if (available.length > 0) {
             const pick = available[Math.floor(Math.random() * available.length)];
             this._usedEvents.add(pool.indexOf(pick));
-            this._addLog(iz ? pick[1] : pick[0], BATTLE_CONFIG.COLORS.gold);
+            this._addLog(iz ? pick[1] : pick[0], MAP_BATTLE_CFG.COLORS.gold);
         }
     }
     
@@ -490,21 +490,21 @@ class BattleArena {
         const fmtK = n => n >= 1000 ? (n / 1000).toFixed(0) + 'M' : n + 'K';
         
         this._addLog('────────', '#334155');
-        this._addLog(iz ? `${wn} 获胜！` : `${wn} WINS!`, BATTLE_CONFIG.COLORS.victory);
+        this._addLog(iz ? `${wn} 获胜！` : `${wn} WINS!`, MAP_BATTLE_CFG.COLORS.victory);
         this._addLog(iz ? `综合国力优势：${pct}%` : `Strength advantage: ${pct}%`, '#fff');
         this._addLog(iz ? `伤亡：${this.shortL} ${fmtK(totalCasL)} / ${this.shortR} ${fmtK(totalCasR)}` : `Casualties: ${this.shortL} ${fmtK(totalCasL)} / ${this.shortR} ${fmtK(totalCasR)}`, '#94a3b8');
         
         const phaseEl = document.getElementById('bPhase');
         if (phaseEl) {
             phaseEl.textContent = iz ? `${wn} 获胜` : `${wn} VICTORY`;
-            phaseEl.style.color = BATTLE_CONFIG.COLORS.victory;
+            phaseEl.style.color = MAP_BATTLE_CFG.COLORS.victory;
             phaseEl.style.fontSize = '16px';
         }
     }
     
     _showVictory() {
         const wn = this.winner === 'left' ? this.shortL : this.shortR;
-        const winColor = this.winner === 'left' ? BATTLE_CONFIG.COLORS.blue.main : BATTLE_CONFIG.COLORS.red.main;
+        const winColor = this.winner === 'left' ? MAP_BATTLE_CFG.COLORS.blue.main : MAP_BATTLE_CFG.COLORS.red.main;
         const iz = this.isZh;
         
         // Show victory overlay in center
@@ -513,7 +513,7 @@ class BattleArena {
             center.innerHTML = `
                 <div style="font-size:10px;color:#64748b;letter-spacing:4px;font-weight:600;margin-bottom:8px;">${iz ? '战争结束' : 'WAR CONCLUDED'}</div>
                 <div style="font-size:clamp(36px,6vw,64px);font-weight:900;color:${winColor};letter-spacing:2px;text-shadow:0 0 40px ${winColor}33;">${wn}</div>
-                <div style="font-size:14px;color:${BATTLE_CONFIG.COLORS.victory};font-weight:700;letter-spacing:3px;margin-top:4px;">${iz ? '获胜' : 'VICTORY'}</div>
+                <div style="font-size:14px;color:${MAP_BATTLE_CFG.COLORS.victory};font-weight:700;letter-spacing:3px;margin-top:4px;">${iz ? '获胜' : 'VICTORY'}</div>
             `;
         }
         
@@ -531,7 +531,7 @@ class BattleArena {
                 vx: Math.cos(angle) * speed,
                 vy: Math.sin(angle) * speed - 1,
                 life: 1 + Math.random() * 0.5,
-                color: Math.random() > 0.5 ? winColor : BATTLE_CONFIG.COLORS.gold,
+                color: Math.random() > 0.5 ? winColor : MAP_BATTLE_CFG.COLORS.gold,
                 size: 2 + Math.random() * 3,
             });
         }
@@ -551,7 +551,7 @@ class BattleArena {
                 const radius = 20 + phase * 80;
                 const alpha = (1 - phase) * 0.08;
                 ctx.globalAlpha = alpha;
-                ctx.strokeStyle = BATTLE_CONFIG.COLORS.gold;
+                ctx.strokeStyle = MAP_BATTLE_CFG.COLORS.gold;
                 ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.arc(cx, cy, radius, 0, Math.PI * 2);
