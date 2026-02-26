@@ -1,6 +1,6 @@
-// ===== BATTLE SIMULATION v4 =====
-// Full-screen arena overlay - no more ugly lines on world map
-// Inspired by fighting games / strategy game battle screens
+// ===== BATTLE SIMULATION v5 =====
+// Full-screen arena with animated center combat
+// R31-50: Animated unit fighters, screen shake, damage numbers, dramatic transitions
 
 const MAP_BATTLE_CFG = {
     PHASE_MS: { intro: 3000, clash: 10000, resolve: 4000, victory: 6000 },
@@ -64,12 +64,33 @@ class BattleArena {
         this.armiesL = this._createArmies('left');
         this.armiesR = this._createArmies('right');
         
-        // Health points (percentage)
         this.hpL = 100;
         this.hpR = 100;
-        
-        // Battle momentum (-1 to 1, negative = blue winning push, positive = red winning push... wait, let's do: <0 = red advantage, >0 = blue advantage)
         this.momentum = 0;
+        this.shakeX = 0;
+        this.shakeY = 0;
+        this.dmgNumbers = []; // floating damage numbers
+        
+        // Create battle units for center animation
+        this.units = [];
+        const unitCountL = Math.min(12, Math.max(4, Math.round(this.troopsL / 1500)));
+        const unitCountR = Math.min(12, Math.max(4, Math.round(this.troopsR / 1500)));
+        for (let i = 0; i < unitCountL; i++) {
+            this.units.push({
+                side: 'left', x: 0, y: 0, targetX: 0, targetY: 0,
+                hp: 100, alive: true, attacking: false, attackTimer: 0,
+                size: 8 + Math.random() * 4, speed: 0.5 + Math.random() * 0.5,
+                row: i % 3, col: Math.floor(i / 3),
+            });
+        }
+        for (let i = 0; i < unitCountR; i++) {
+            this.units.push({
+                side: 'right', x: 0, y: 0, targetX: 0, targetY: 0,
+                hp: 100, alive: true, attacking: false, attackTimer: 0,
+                size: 8 + Math.random() * 4, speed: 0.5 + Math.random() * 0.5,
+                row: i % 3, col: Math.floor(i / 3),
+            });
+        }
         
         this.createUI();
     }
@@ -346,10 +367,45 @@ class BattleArena {
         const iz = this.isZh;
         const fmtK = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'M' : n + 'K';
         
+        // Screen shake decay
+        this.shakeX *= 0.9;
+        this.shakeY *= 0.9;
+        
+        // Damage number float
+        this.dmgNumbers = this.dmgNumbers.filter(d => {
+            d.y -= 0.8;
+            d.life -= 0.015;
+            return d.life > 0;
+        });
+        
+        // Update battle units
+        this._updateUnits(progress);
+        
         if (this.phase === 'intro') {
-            // Tension building
-            if (progress > 0.5 && this.tick % 60 === 0) {
+            // Dramatic intro
+            if (progress > 0.3 && this.tick % 80 === 0) {
                 this._addLog(iz ? '双方军队集结完毕' : 'Both armies assembled', '#94a3b8');
+            }
+            if (progress > 0.6 && this.tick % 60 === 0) {
+                this._addLog(iz ? '剑拔弩张...' : 'Tensions rising...', '#64748b');
+            }
+            // VS flash at 80% through intro
+            if (Math.abs(progress - 0.8) < 0.02) {
+                this.shakeX += 4;
+                this.shakeY += 2;
+                // Flash particles
+                const cxI = this.w / 2, cyI = this.h / 2;
+                for (let i = 0; i < 20; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    this.particles.push({
+                        x: cxI, y: cyI,
+                        vx: Math.cos(angle) * (1 + Math.random() * 3),
+                        vy: Math.sin(angle) * (1 + Math.random() * 3),
+                        life: 0.5 + Math.random() * 0.3,
+                        color: '#fff',
+                        size: 1 + Math.random() * 2,
+                    });
+                }
             }
         } else if (this.phase === 'clash') {
             // Battle progresses
@@ -470,6 +526,102 @@ class BattleArena {
                 });
             }
         }
+    }
+    
+    _updateUnits(progress) {
+        const cx = this.w / 2, cy = this.h / 2;
+        const spacing = 16;
+        
+        this.units.forEach(u => {
+            if (!u.alive) return;
+            
+            if (this.phase === 'intro') {
+                // Units gather in formation on their side
+                const baseX = u.side === 'left' ? cx - 180 : cx + 180;
+                const baseY = cy - 30 + u.row * spacing;
+                const colOffset = u.col * spacing * (u.side === 'left' ? -1 : 1);
+                u.targetX = baseX + colOffset;
+                u.targetY = baseY;
+            } else if (this.phase === 'clash') {
+                // Units advance toward center, then engage
+                const advanceX = u.side === 'left' ? cx - 60 + u.col * 12 : cx + 60 - u.col * 12;
+                const baseY = cy - 30 + u.row * spacing;
+                u.targetX = advanceX;
+                u.targetY = baseY + (Math.sin(this.tick * 0.05 + u.row) * 3);
+                
+                // Random attack lunges
+                if (u.attacking) {
+                    u.attackTimer--;
+                    const lunge = u.side === 'left' ? 25 : -25;
+                    u.targetX += lunge;
+                    if (u.attackTimer <= 0) u.attacking = false;
+                } else if (Math.random() < 0.008) {
+                    u.attacking = true;
+                    u.attackTimer = 15;
+                    // Screen shake on attack
+                    this.shakeX += (Math.random() - 0.5) * 2;
+                    this.shakeY += (Math.random() - 0.5) * 1;
+                    // Damage number
+                    const dmg = Math.floor(Math.random() * 200 + 50);
+                    this.dmgNumbers.push({
+                        x: u.targetX + (u.side === 'left' ? 30 : -30),
+                        y: u.targetY - 10,
+                        text: '-' + dmg,
+                        color: u.side === 'left' ? MAP_BATTLE_CFG.COLORS.red.main : MAP_BATTLE_CFG.COLORS.blue.main,
+                        life: 1,
+                    });
+                    // Spark particles at impact
+                    for (let i = 0; i < 3; i++) {
+                        this.particles.push({
+                            x: cx + (Math.random() - 0.5) * 30,
+                            y: cy + (Math.random() - 0.5) * 20 + u.row * spacing - 30,
+                            vx: (Math.random() - 0.5) * 3,
+                            vy: -1 - Math.random() * 2,
+                            life: 0.4 + Math.random() * 0.3,
+                            color: MAP_BATTLE_CFG.COLORS.gold,
+                            size: 1.5 + Math.random() * 1.5,
+                        });
+                    }
+                }
+                
+                // Kill loser units gradually
+                const isLoser = (this.winner === 'left' && u.side === 'right') || (this.winner === 'right' && u.side === 'left');
+                if (isLoser && progress > 0.3 && Math.random() < 0.002 * progress) {
+                    u.alive = false;
+                    // Death particles
+                    for (let i = 0; i < 5; i++) {
+                        this.particles.push({
+                            x: u.x, y: u.y,
+                            vx: (Math.random() - 0.5) * 2,
+                            vy: -0.5 - Math.random() * 1.5,
+                            life: 0.6,
+                            color: u.side === 'left' ? MAP_BATTLE_CFG.COLORS.blue.light : MAP_BATTLE_CFG.COLORS.red.light,
+                            size: 2 + Math.random() * 2,
+                        });
+                    }
+                    this.shakeX += (Math.random() - 0.5) * 3;
+                    this.shakeY += (Math.random() - 0.5) * 2;
+                }
+            } else if (this.phase === 'resolve') {
+                // Winner pushes forward, loser retreats
+                const isWinner = (this.winner === 'left' && u.side === 'left') || (this.winner === 'right' && u.side === 'right');
+                if (isWinner) {
+                    u.targetX = cx + (u.side === 'left' ? 20 : -20);
+                } else {
+                    u.targetX = u.side === 'left' ? cx - 250 - u.col * 20 : cx + 250 + u.col * 20;
+                }
+            } else if (this.phase === 'victory') {
+                // Winner units celebrate (bounce)
+                const isWinner = (this.winner === 'left' && u.side === 'left') || (this.winner === 'right' && u.side === 'right');
+                if (isWinner) {
+                    u.targetY = cy - 30 + u.row * spacing + Math.sin(this.tick * 0.1 + u.col) * 5;
+                }
+            }
+            
+            // Smooth movement
+            u.x += (u.targetX - u.x) * 0.08;
+            u.y += (u.targetY - u.y) * 0.08;
+        });
     }
     
     _emitBattleEvent(progress) {
@@ -618,6 +770,19 @@ class BattleArena {
             ctx.arc(cx, cy, 40, 0, Math.PI * 2);
             ctx.fill();
             
+            // Frontline indicator (vertical line that shifts with momentum)
+            const frontX = cx + this.momentum * 80;
+            ctx.globalAlpha = 0.15;
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 8]);
+            ctx.beginPath();
+            ctx.moveTo(frontX, cy - 60);
+            ctx.lineTo(frontX, cy + 60);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+            
             // Side glow showing momentum
             const blueX = cx - 120 - this.momentum * 60;
             const redX = cx + 120 - this.momentum * 60;
@@ -639,7 +804,60 @@ class BattleArena {
             ctx.fill();
         }
         
-        // Particles
+        // Apply screen shake
+        ctx.save();
+        ctx.translate(this.shakeX, this.shakeY);
+        
+        // Draw battle units
+        this.units.forEach(u => {
+            if (!u.alive) return;
+            const colors = u.side === 'left' ? MAP_BATTLE_CFG.COLORS.blue : MAP_BATTLE_CFG.COLORS.red;
+            const s = u.size;
+            
+            // Unit glow
+            ctx.globalAlpha = 0.15;
+            ctx.fillStyle = colors.main;
+            ctx.beginPath();
+            ctx.arc(u.x, u.y, s + 4, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Unit body (rounded square)
+            ctx.globalAlpha = u.attacking ? 1 : 0.85;
+            ctx.fillStyle = colors.main;
+            ctx.beginPath();
+            ctx.roundRect(u.x - s / 2, u.y - s / 2, s, s, 2);
+            ctx.fill();
+            
+            // Inner highlight
+            ctx.globalAlpha = 0.4;
+            ctx.fillStyle = colors.light;
+            ctx.beginPath();
+            ctx.roundRect(u.x - s / 2 + 1, u.y - s / 2 + 1, s / 2, s / 2, 1);
+            ctx.fill();
+            
+            // HP bar under unit
+            if (u.hp < 100) {
+                ctx.globalAlpha = 0.6;
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(u.x - s / 2, u.y + s / 2 + 2, s, 2);
+                ctx.fillStyle = u.hp > 50 ? colors.main : (u.hp > 25 ? MAP_BATTLE_CFG.COLORS.gold : '#ef4444');
+                ctx.fillRect(u.x - s / 2, u.y + s / 2 + 2, s * (u.hp / 100), 2);
+            }
+            ctx.globalAlpha = 1;
+        });
+        
+        // Draw damage numbers
+        this.dmgNumbers.forEach(d => {
+            ctx.globalAlpha = Math.min(1, d.life) * 0.9;
+            ctx.font = '700 14px Inter,system-ui,sans-serif';
+            ctx.fillStyle = d.color;
+            ctx.textAlign = 'center';
+            ctx.fillText(d.text, d.x, d.y);
+        });
+        
+        ctx.restore(); // End screen shake
+        
+        // Particles (drawn without shake)
         this.particles.forEach(p => {
             ctx.globalAlpha = Math.min(1, p.life) * 0.8;
             ctx.fillStyle = p.color;
