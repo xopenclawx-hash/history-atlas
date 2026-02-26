@@ -129,6 +129,7 @@ class MapBattle {
         
         // Calculate distance and neighbor status
         let dLng = this.posR.lng - this.posL.lng;
+        this._crossesPacific = Math.abs(dLng) > 180;
         if (Math.abs(dLng) > 180) dLng = dLng > 0 ? dLng - 360 : dLng + 360;
         const dist = Math.sqrt((this.posL.lat - this.posR.lat)**2 + dLng**2);
         this.isNeighbor = dist < 25;
@@ -294,6 +295,14 @@ class MapBattle {
     }
     
     latLngToPixel(lat, lng) {
+        // For cross-Pacific battles, ensure longitude wraps correctly
+        // Leaflet worldCopyJump helps but we need to pick the right copy
+        if (this._crossesPacific) {
+            // If this point is far from the map center, try shifted version
+            const center = this.map.getCenter().lng;
+            while (lng - center > 180) lng -= 360;
+            while (lng - center < -180) lng += 360;
+        }
         const point = this.map.latLngToContainerPoint([lat, lng]);
         return { x: point.x, y: point.y };
     }
@@ -305,8 +314,13 @@ class MapBattle {
         this.phaseStart = performance.now();
         
         // Zoom to show both countries
-        const bounds = L.latLngBounds([this.posL, this.posR]);
-        this.map.fitBounds(bounds.pad(0.4), { animate: true, duration: 1.2 });
+        if (this._crossesPacific) {
+            // Center on Pacific for cross-date-line battles
+            this.map.setView([this.battleLat, this.battleLng], 3, { animate: true, duration: 1.2 });
+        } else {
+            const bounds = L.latLngBounds([this.posL, this.posR]);
+            this.map.fitBounds(bounds.pad(0.4), { animate: true, duration: 1.2 });
+        }
         
         // Deploy phase log
         const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
