@@ -120,7 +120,7 @@ class BattleArena {
         overlay.id = 'battleOverlay';
         overlay.style.cssText = `
             position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:2000;
-            background:rgba(5,8,18,0.96);
+            background:rgba(5,8,18,0.98);
             font-family:Inter,system-ui,-apple-system,sans-serif;
             color:#e2e8f0; overflow:hidden;
             opacity:0; transition:opacity 0.8s ease;
@@ -182,22 +182,28 @@ class BattleArena {
             .battle-army.destroyed { opacity:0.3; text-decoration:line-through; }
             .battle-hp-bar { height:4px; border-radius:2px; transition:width 0.5s ease; }
             .battle-center { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; z-index:5; pointer-events:none; }
-            .battle-vs { font-size:clamp(48px,8vw,80px); font-weight:900; opacity:0.06; letter-spacing:8px; }
+            .battle-vs { font-size:clamp(60px,10vw,120px); font-weight:900; opacity:0.04; letter-spacing:12px; color:#fff; }
             .battle-phase { font-size:12px; letter-spacing:3px; margin-top:10px; }
-            .battle-log { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); width:500px; max-height:120px; overflow-y:auto; z-index:20; }
+            .battle-log { position:absolute; bottom:50px; left:50%; transform:translateX(-50%); width:460px; max-height:130px; overflow-y:auto; z-index:20; background:rgba(5,8,18,0.6); backdrop-filter:blur(8px); border-radius:10px; padding:10px 14px; border:1px solid rgba(255,255,255,0.03); }
             .battle-log-entry { font-size:11px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); line-height:1.5; }
             .battle-force-bar { position:absolute; top:20px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:12px; z-index:20; }
             .battle-force-track { width:300px; height:8px; border-radius:4px; overflow:hidden; display:flex; background:rgba(255,255,255,0.03); }
             .battle-force-fill-l { background:linear-gradient(90deg,${MAP_BATTLE_CFG.COLORS.blue.dark},${MAP_BATTLE_CFG.COLORS.blue.main}); transition:flex 0.8s ease; border-radius:4px 0 0 4px; }
             .battle-force-fill-r { background:linear-gradient(90deg,${MAP_BATTLE_CFG.COLORS.red.main},${MAP_BATTLE_CFG.COLORS.red.dark}); transition:flex 0.8s ease; border-radius:0 4px 4px 0; }
-            .battle-btn { position:absolute; bottom:20px; right:20px; z-index:30; background:rgba(30,40,70,0.9); backdrop-filter:blur(12px); color:#e2e8f0; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px 24px; font-size:11px; font-weight:600; letter-spacing:2px; cursor:pointer; font-family:Inter,system-ui,sans-serif; display:none; transition:all 0.3s; }
+            .battle-btn { position:absolute; z-index:30; background:rgba(30,40,70,0.9); backdrop-filter:blur(12px); color:#e2e8f0; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px 24px; font-size:11px; font-weight:600; letter-spacing:2px; cursor:pointer; font-family:Inter,system-ui,sans-serif; display:none; transition:all 0.3s; }
             .battle-btn:hover { background:rgba(40,55,90,0.95); }
+            #bAgainBtn { bottom:20px; right:20px; }
+            #bCloseBtn { bottom:20px; left:20px; display:block !important; opacity:0.5; }
+            #bCloseBtn:hover { opacity:1; }
             .battle-divider { width:1px; height:60vh; position:absolute; top:20vh; left:50%; background:linear-gradient(180deg,transparent,rgba(255,255,255,0.04),transparent); }
+            .battle-bg-pattern { position:absolute;top:0;left:0;width:100%;height:100%;opacity:0.015;background:repeating-linear-gradient(45deg,transparent,transparent 40px,rgba(255,255,255,0.5) 40px,rgba(255,255,255,0.5) 41px);pointer-events:none; }
             @keyframes slideInLeft { from { transform:translateX(-60px); opacity:0; } to { transform:translateX(0); opacity:1; } }
             @keyframes slideInRight { from { transform:translateX(60px); opacity:0; } to { transform:translateX(0); opacity:1; } }
             .battle-left { animation:slideInLeft 1s ease 0.3s both; }
             .battle-right { animation:slideInRight 1s ease 0.3s both; }
         </style>
+        
+        <div class="battle-bg-pattern"></div>
         
         <!-- Force bar at top -->
         <div class="battle-force-bar">
@@ -219,14 +225,14 @@ class BattleArena {
                 <div class="battle-stat"><span style="color:#64748b;">GDP:</span> <span class="battle-stat-value">${fmtGDP(L.gdp)}</span></div>
                 <div class="battle-stat"><span style="color:#64748b;">${iz ? '综合国力' : 'Strength'}:</span> <span class="battle-stat-value">${L.npi.toFixed(1)}%</span></div>
             </div>
-            <div style="margin-top:8px;font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:6px;">${iz ? '军事力量' : 'MILITARY FORCES'}</div>
+            <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.04);padding-top:12px;font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:6px;">${iz ? '军事力量' : 'MILITARY FORCES'}</div>
             <div id="bArmiesL">
                 ${this.armiesL.map((a, i) => `
                     <div class="battle-army" id="bArmyL${i}" style="background:${MAP_BATTLE_CFG.COLORS.blue.bg};">
                         <span style="font-size:14px;width:20px;text-align:center;">${a.icon}</span>
                         <span style="flex:1;color:${MAP_BATTLE_CFG.COLORS.blue.light};font-weight:600;">${iz ? a.zh : a.name}</span>
                         <span style="color:#94a3b8;font-size:10px;" id="bArmyLT${i}">${fmtK(a.troops)}</span>
-                        <div style="width:40px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;">
+                        <div style="width:50px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;">
                             <div class="battle-hp-bar" id="bArmyLH${i}" style="width:100%;background:${MAP_BATTLE_CFG.COLORS.blue.main};"></div>
                         </div>
                     </div>
@@ -243,11 +249,11 @@ class BattleArena {
                 <div class="battle-stat"><span style="color:#64748b;">GDP:</span> <span class="battle-stat-value">${fmtGDP(R.gdp)}</span></div>
                 <div class="battle-stat"><span style="color:#64748b;">${iz ? '综合国力' : 'Strength'}:</span> <span class="battle-stat-value">${R.npi.toFixed(1)}%</span></div>
             </div>
-            <div style="margin-top:8px;font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:6px;">${iz ? '军事力量' : 'MILITARY FORCES'}</div>
+            <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.04);padding-top:12px;font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:6px;">${iz ? '军事力量' : 'MILITARY FORCES'}</div>
             <div id="bArmiesR">
                 ${this.armiesR.map((a, i) => `
                     <div class="battle-army" id="bArmyR${i}" style="background:${MAP_BATTLE_CFG.COLORS.red.bg};justify-content:flex-end;">
-                        <div style="width:40px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;">
+                        <div style="width:50px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;">
                             <div class="battle-hp-bar" id="bArmyRH${i}" style="width:100%;background:${MAP_BATTLE_CFG.COLORS.red.main};margin-left:auto;"></div>
                         </div>
                         <span style="color:#94a3b8;font-size:10px;" id="bArmyRT${i}">${fmtK(a.troops)}</span>
@@ -349,16 +355,17 @@ class BattleArena {
             const loseArmies = this.winner === 'left' ? this.armiesR : this.armiesL;
             
             // Apply damage over time
-            loseArmies.forEach(a => {
+            loseArmies.forEach((a, i) => {
                 if (a.destroyed) return;
-                const dmg = progress * (60 + Math.random() * 30);
+                const baseDmg = 50 + i * 15; // later units take more damage
+                const dmg = progress * (baseDmg + Math.random() * 40);
                 a.hp = Math.max(0, 100 - dmg);
                 a.casualties = Math.round(a.troops * (1 - a.hp / 100));
-                if (a.hp <= 0) a.destroyed = true;
+                if (a.hp <= 5 && progress > 0.7) a.destroyed = true;
             });
-            winArmies.forEach(a => {
-                const dmg = progress * (15 + Math.random() * 15);
-                a.hp = Math.max(5, 100 - dmg);
+            winArmies.forEach((a, i) => {
+                const dmg = progress * (10 + Math.random() * 20);
+                a.hp = Math.max(15, 100 - dmg);
                 a.casualties = Math.round(a.troops * (1 - a.hp / 100));
             });
             
