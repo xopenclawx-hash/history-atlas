@@ -1,15 +1,13 @@
-// ===== MAP-BASED BATTLE SIMULATION =====
-// Battles play out on the actual Leaflet map with armies moving between countries
+// ===== MAP-BASED BATTLE SIMULATION v2 =====
+// Arrow-based military visualization with multi-pronged attacks
 
 const MAP_BATTLE = {
-    UNIT_COUNT_BASE: 25,     // base units per side
-    UNIT_SIZE: 8,            // px radius
-    MARCH_SPEED: 0.005,      // lat/lng per frame
-    BATTLE_RADIUS: 2,        // degrees - engagement zone
-    PHASE_MS: { march: 5000, battle: 6000, resolve: 3000, aftermath: 4000 },
+    PHASE_MS: { deploy: 2000, march: 6000, engage: 7000, resolve: 4000, aftermath: 5000 },
     COLORS: {
-        blue: { fill: '#3b82f6', stroke: '#1d4ed8', glow: 'rgba(59,130,246,0.5)' },
-        red:  { fill: '#ef4444', stroke: '#b91c1c', glow: 'rgba(239,68,68,0.5)' }
+        blue: { fill: '#3b82f6', stroke: '#1d4ed8', glow: 'rgba(59,130,246,0.4)', light: 'rgba(59,130,246,0.15)' },
+        red:  { fill: '#ef4444', stroke: '#b91c1c', glow: 'rgba(239,68,68,0.4)', light: 'rgba(239,68,68,0.15)' },
+        clash: '#fbbf24',
+        victory: '#22c55e'
     }
 };
 
@@ -18,17 +16,79 @@ function getCountryCentroid(iso) {
     if (typeof geoLayer === 'undefined' || !geoLayer) return null;
     let found = null;
     geoLayer.eachLayer(layer => {
-        if (found) return; // already found
+        if (found) return;
         const props = layer.feature.properties;
         let layerIso = props.ISO_A3;
         if (layerIso === '-99' && typeof ISO_FIXES !== 'undefined') {
             layerIso = ISO_FIXES[props.NAME] || layerIso;
         }
-        if (layerIso === iso) {
-            found = layer.getBounds().getCenter();
-        }
+        if (layerIso === iso) found = layer.getBounds().getCenter();
     });
     return found;
+}
+
+// Generate multi-pronged attack routes
+function generateArmyRoutes(fromPos, toPos, numRoutes, side) {
+    const routes = [];
+    const dLat = toPos.lat - fromPos.lat;
+    let dLng = toPos.lng - fromPos.lng;
+    if (Math.abs(dLng) > 180) dLng = dLng > 0 ? dLng - 360 : dLng + 360;
+    
+    // Perpendicular direction for spread
+    const len = Math.sqrt(dLat*dLat + dLng*dLng);
+    const perpLat = -dLng / len;
+    const perpLng = dLat / len;
+    
+    const names_en = ['Main Force', '1st Flank', '2nd Flank', 'Naval Force', 'Reserve'];
+    const names_zh = ['主力', '左翼', '右翼', '海军', '预备队'];
+    
+    // Distribute forces: main gets 40-50%, flanks get rest
+    const forceDistribution = numRoutes === 2 ? [0.6, 0.4] :
+        numRoutes === 3 ? [0.45, 0.3, 0.25] : [0.35, 0.25, 0.25, 0.15];
+    
+    for (let i = 0; i < numRoutes; i++) {
+        // Spread routes perpendicular to attack direction
+        const spread = (i - (numRoutes - 1) / 2) * Math.min(8, len * 0.35);
+        
+        // Midpoint with curve (arced path)
+        const midLat = fromPos.lat + dLat * 0.5 + perpLat * spread;
+        let midLng = fromPos.lng + dLng * 0.5 + perpLng * spread;
+        
+        // Add a slight forward/backward offset for variety
+        const fwdOffset = (Math.random() - 0.5) * 0.1;
+        
+        // Is this a naval route? (crosses lots of water -- heuristic: large lat or lng gap)
+        const isNaval = Math.abs(dLng) > 50 || (i === numRoutes - 1 && Math.abs(dLng) > 30);
+        
+        routes.push({
+            id: i,
+            name_en: isNaval ? 'Naval Force' : names_en[i] || `${i+1}th Army`,
+            name_zh: isNaval ? '海军' : names_zh[i] || `第${i+1}军`,
+            isNaval,
+            forceRatio: forceDistribution[i] || 0.2,
+            // Path: start -> mid -> end (Bezier control point)
+            from: { lat: fromPos.lat, lng: fromPos.lng },
+            mid: { lat: midLat, lng: midLng },
+            to: { lat: toPos.lat + perpLat * spread * 0.3, lng: toPos.lng + perpLng * spread * 0.3 },
+            progress: 0, // 0-1 how far along the march
+            arrived: false,
+            engaged: false,
+            casualties: 0,
+            totalTroops: 0,
+            destroyed: false,
+            won: false,
+        });
+    }
+    return routes;
+}
+
+// Bezier interpolation for curved army paths
+function bezierPoint(from, mid, to, t) {
+    const u = 1 - t;
+    return {
+        lat: u*u*from.lat + 2*u*t*mid.lat + t*t*to.lat,
+        lng: u*u*from.lng + 2*u*t*mid.lng + t*t*to.lng
+    };
 }
 
 class MapBattle {
@@ -38,13 +98,18 @@ class MapBattle {
         this.rightISO = rightISO;
         this.year = year;
         this.data = data;
-        this.phase = 'march'; // march -> battle -> resolve
+        this.phase = 'deploy';
         this.tick = 0;
         this.running = false;
-        this.units = { left: [], right: [] };
-        this.particles = [];
         this.winner = null;
+        this.battleLog = []; // text war reports
+        this.clashPoints = []; // where battles happen
         this.onComplete = null;
+        
+        this.nameL = typeof getLocalName !== 'undefined' ? getLocalName(leftISO) : leftISO;
+        this.nameR = typeof getLocalName !== 'undefined' ? getLocalName(rightISO) : rightISO;
+        this.shortNameL = this.nameL.replace('United States of America','USA').replace('United Kingdom','UK').replace('Democratic Republic of the Congo','DR Congo');
+        this.shortNameR = this.nameR.replace('United States of America','USA').replace('United Kingdom','UK').replace('Democratic Republic of the Congo','DR Congo');
         
         // Get country positions
         this.posL = getCountryCentroid(leftISO);
@@ -56,35 +121,27 @@ class MapBattle {
             return;
         }
         
-        // Battle point = midpoint, handling date line crossing
-        this.battleLat = (this.posL.lat + this.posR.lat) / 2;
+        // Calculate distance and neighbor status
         let dLng = this.posR.lng - this.posL.lng;
-        // If distance > 180, wrap around the other way (go via Pacific for CHN-USA)
-        if (Math.abs(dLng) > 180) {
-            dLng = dLng > 0 ? dLng - 360 : dLng + 360;
-        }
+        if (Math.abs(dLng) > 180) dLng = dLng > 0 ? dLng - 360 : dLng + 360;
+        const dist = Math.sqrt((this.posL.lat - this.posR.lat)**2 + dLng**2);
+        this.isNeighbor = dist < 25;
+        this.distance = dist;
+        
+        // Battle midpoint
+        this.battleLat = (this.posL.lat + this.posR.lat) / 2;
         this.battleLng = this.posL.lng + dLng / 2;
-        // Normalize to [-180, 180]
         if (this.battleLng > 180) this.battleLng -= 360;
         if (this.battleLng < -180) this.battleLng += 360;
         
-        // Detect if countries are neighbors (close centroids)
-        const dist = Math.sqrt(
-            (this.posL.lat - this.posR.lat)**2 + 
-            Math.min(Math.abs(this.posL.lng - this.posR.lng), 360 - Math.abs(this.posL.lng - this.posR.lng))**2
-        );
-        this.isNeighbor = dist < 25; // ~25 degrees = adjacent countries
-        
-        // For neighbors, battle at border (70/30 toward weaker side)
+        // For neighbors, bias toward weaker side
         if (this.isNeighbor) {
-            const weakBias = this.ratioL > this.ratioR ? 0.55 : 0.45;
-            this.battleLat = this.posL.lat + (this.posR.lat - this.posL.lat) * weakBias;
-            let dLng2 = this.posR.lng - this.posL.lng;
-            if (Math.abs(dLng2) > 180) dLng2 = dLng2 > 0 ? dLng2 - 360 : dLng2 + 360;
-            this.battleLng = this.posL.lng + dLng2 * weakBias;
+            const bias = 0.5;
+            this.battleLat = this.posL.lat + (this.posR.lat - this.posL.lat) * bias;
+            this.battleLng = this.posL.lng + dLng * bias;
         }
         
-        // Calculate force balance
+        // Force calculation
         const L = data.left, R = data.right;
         this.forceL = (L.npi || 0.1) * 60 + (L.gdp || 0) * 0.001 + Math.sqrt(L.pop || 0) * 0.0001;
         this.forceR = (R.npi || 0.1) * 60 + (R.gdp || 0) * 0.001 + Math.sqrt(R.pop || 0) * 0.0001;
@@ -92,31 +149,117 @@ class MapBattle {
         this.ratioL = this.forceL / total;
         this.ratioR = this.forceR / total;
         
-        // Determine winner with slight randomness
+        // Winner with randomness
         this.winChance = this.ratioL + (Math.random() - 0.5) * 0.12;
         this.winner = this.winChance > 0.5 ? 'left' : 'right';
         
-        // Unit counts
-        this.unitCountL = Math.max(8, Math.min(50, Math.round(this.ratioL * MAP_BATTLE.UNIT_COUNT_BASE * 2)));
-        this.unitCountR = Math.max(8, Math.min(50, Math.round(this.ratioR * MAP_BATTLE.UNIT_COUNT_BASE * 2)));
+        // Total troops (in thousands for display)
+        this.troopsL = Math.round(Math.sqrt(L.pop || 100000) * (L.npi || 1) * 0.5);
+        this.troopsR = Math.round(Math.sqrt(R.pop || 100000) * (R.npi || 1) * 0.5);
+        // Cap troops for display sanity
+        this.troopsL = Math.min(this.troopsL, 5000);
+        this.troopsR = Math.min(this.troopsR, 5000);
         
-        // Create canvas overlay
+        // Generate army routes (2-4 per side)
+        const numRoutesL = dist > 50 ? 3 : (this.troopsL > 1000 ? 3 : 2);
+        const numRoutesR = dist > 50 ? 3 : (this.troopsR > 1000 ? 3 : 2);
+        
+        this.routesL = generateArmyRoutes(this.posL, {lat: this.battleLat, lng: this.battleLng}, numRoutesL, 'left');
+        this.routesR = generateArmyRoutes(this.posR, {lat: this.battleLat, lng: this.battleLng}, numRoutesR, 'right');
+        
+        // Assign troop numbers
+        this.routesL.forEach(r => r.totalTroops = Math.round(this.troopsL * r.forceRatio));
+        this.routesR.forEach(r => r.totalTroops = Math.round(this.troopsR * r.forceRatio));
+        
         this.createOverlay();
-        this.spawnUnits();
+        this.createWarLog();
     }
     
     createOverlay() {
-        // Create a canvas pane over the map
         this.canvas = document.createElement('canvas');
         this.canvas.id = 'mapBattleCanvas';
         this.canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:650;pointer-events:none;';
         this.map.getContainer().appendChild(this.canvas);
         this.ctx = this.canvas.getContext('2d');
         this.resizeCanvas();
-        
-        // Handle resize
         this._resizeHandler = () => this.resizeCanvas();
         window.addEventListener('resize', this._resizeHandler);
+    }
+    
+    createWarLog() {
+        // War report panel on left side
+        let panel = document.getElementById('warLogPanel');
+        if (panel) panel.remove();
+        panel = document.createElement('div');
+        panel.id = 'warLogPanel';
+        panel.style.cssText = `
+            position:fixed; top:60px; left:16px; width:280px; max-height:60vh;
+            background:rgba(10,14,23,0.92); backdrop-filter:blur(16px);
+            border:1px solid rgba(255,255,255,0.08); border-radius:14px;
+            padding:16px; z-index:1500; overflow-y:auto;
+            font-family:Inter,sans-serif; color:#e2e8f0;
+            box-shadow:0 8px 30px rgba(0,0,0,0.4);
+        `;
+        panel.innerHTML = `
+            <div style="font-size:11px;color:#64748b;letter-spacing:2px;margin-bottom:8px;">WAR REPORT</div>
+            <div style="font-size:16px;font-weight:700;margin-bottom:4px;">
+                <span style="color:${MAP_BATTLE.COLORS.blue.fill}">${this.shortNameL}</span>
+                <span style="color:#64748b;margin:0 6px;">vs</span>
+                <span style="color:${MAP_BATTLE.COLORS.red.fill}">${this.shortNameR}</span>
+            </div>
+            <div style="font-size:10px;color:#475569;margin-bottom:12px;">${yearLabel(this.year)}</div>
+            <div id="warLogForces" style="margin-bottom:12px;"></div>
+            <div id="warLogEntries" style="font-size:11px;line-height:1.6;"></div>
+        `;
+        document.body.appendChild(panel);
+        this.updateForceDisplay();
+    }
+    
+    updateForceDisplay() {
+        const el = document.getElementById('warLogForces');
+        if (!el) return;
+        const fmtK = n => n >= 1000 ? (n/1000).toFixed(0) + 'K' : n.toString();
+        const remainL = this.routesL.reduce((s,r) => s + r.totalTroops - r.casualties, 0);
+        const remainR = this.routesR.reduce((s,r) => s + r.totalTroops - r.casualties, 0);
+        const barWidth = 200;
+        const totalAll = this.troopsL + this.troopsR || 1;
+        const blueW = Math.round((remainL / totalAll) * barWidth);
+        const redW = Math.round((remainR / totalAll) * barWidth);
+        
+        el.innerHTML = `
+            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px;">
+                <span style="color:${MAP_BATTLE.COLORS.blue.fill}">${fmtK(remainL)} troops</span>
+                <span style="color:${MAP_BATTLE.COLORS.red.fill}">${fmtK(remainR)} troops</span>
+            </div>
+            <div style="display:flex;height:6px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.05);">
+                <div style="width:${blueW}px;background:${MAP_BATTLE.COLORS.blue.fill};transition:width 0.5s;"></div>
+                <div style="width:2px;background:rgba(255,255,255,0.2);"></div>
+                <div style="width:${redW}px;background:${MAP_BATTLE.COLORS.red.fill};transition:width 0.5s;"></div>
+            </div>
+            <div style="margin-top:8px;">
+                ${this.routesL.map(r => `
+                    <div style="font-size:10px;color:${r.destroyed?'#475569':MAP_BATTLE.COLORS.blue.fill};margin:2px 0;${r.destroyed?'text-decoration:line-through;':''}">
+                        ${r.isNaval?'⚓':'→'} ${typeof currentLang !== 'undefined' && currentLang === 'zh' ? r.name_zh : r.name_en}: ${fmtK(r.totalTroops - r.casualties)}/${fmtK(r.totalTroops)}
+                    </div>
+                `).join('')}
+                ${this.routesR.map(r => `
+                    <div style="font-size:10px;color:${r.destroyed?'#475569':MAP_BATTLE.COLORS.red.fill};margin:2px 0;${r.destroyed?'text-decoration:line-through;':''}">
+                        ${r.isNaval?'⚓':'→'} ${typeof currentLang !== 'undefined' && currentLang === 'zh' ? r.name_zh : r.name_en}: ${fmtK(r.totalTroops - r.casualties)}/${fmtK(r.totalTroops)}
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+    
+    addLog(text, color) {
+        this.battleLog.push({text, color: color || '#94a3b8', time: Date.now()});
+        const el = document.getElementById('warLogEntries');
+        if (el) {
+            el.innerHTML = this.battleLog.map(e => 
+                `<div style="color:${e.color};margin-bottom:4px;padding-left:8px;border-left:2px solid ${e.color}22;">${e.text}</div>`
+            ).join('');
+            el.scrollTop = el.scrollHeight;
+        }
     }
     
     resizeCanvas() {
@@ -129,93 +272,36 @@ class MapBattle {
         this.h = container.clientHeight;
     }
     
-    // Convert lat/lng to pixel position on map
     latLngToPixel(lat, lng) {
         const point = this.map.latLngToContainerPoint([lat, lng]);
         return { x: point.x, y: point.y };
     }
     
-    spawnUnits() {
-        const spread = 3; // degrees of spread for formation feel
-        
-        for (let i = 0; i < this.unitCountL; i++) {
-            this.units.left.push({
-                lat: this.posL.lat + (Math.random() - 0.5) * spread,
-                lng: this.posL.lng + (Math.random() - 0.5) * spread,
-                targetLat: this.battleLat + (Math.random() - 0.5) * MAP_BATTLE.BATTLE_RADIUS,
-                targetLng: this.battleLng + (Math.random() - 0.5) * MAP_BATTLE.BATTLE_RADIUS,
-                hp: 100, maxHp: 100, dead: false, speed: 0.7 + Math.random() * 0.6
-            });
-        }
-        
-        for (let i = 0; i < this.unitCountR; i++) {
-            this.units.right.push({
-                lat: this.posR.lat + (Math.random() - 0.5) * spread,
-                lng: this.posR.lng + (Math.random() - 0.5) * spread,
-                targetLat: this.battleLat + (Math.random() - 0.5) * MAP_BATTLE.BATTLE_RADIUS,
-                targetLng: this.battleLng + (Math.random() - 0.5) * MAP_BATTLE.BATTLE_RADIUS,
-                hp: 100, maxHp: 100, dead: false, speed: 0.7 + Math.random() * 0.6
-            });
-        }
-    }
-    
     start(onComplete) {
-        if (this.failed) { console.error('Battle failed to init'); return; }
+        if (this.failed) return;
         this.onComplete = onComplete;
         this.running = true;
         this.phaseStart = performance.now();
         
-        // Zoom map to show both countries
+        // Zoom to show both countries
         const bounds = L.latLngBounds([this.posL, this.posR]);
-        this.map.fitBounds(bounds.pad(0.3), { animate: true, duration: 1 });
+        this.map.fitBounds(bounds.pad(0.4), { animate: true, duration: 1.2 });
         
-        // Show march info banner
-        this.updateBanner(
-            typeof currentLang !== 'undefined' && currentLang === 'zh' ? '集结出征' : 'MOBILIZING',
-            '#38bdf8'
-        );
-        this.showBanner(
-            typeof currentLang !== 'undefined' && currentLang === 'zh' 
-                ? `${getLocalName(this.leftISO)} vs ${getLocalName(this.rightISO)}` 
-                : `${getLocalName(this.leftISO)} vs ${getLocalName(this.rightISO)}`,
-            yearLabel(this.year)
-        );
+        // Deploy phase log
+        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
+        this.addLog(isZh ? `${this.shortNameL} 与 ${this.shortNameR} 开战` : `War declared between ${this.shortNameL} and ${this.shortNameR}`, '#fff');
+        this.addLog(isZh 
+            ? `${this.shortNameL} 部署 ${this.routesL.length} 路大军` 
+            : `${this.shortNameL} deploys ${this.routesL.length} army groups`, MAP_BATTLE.COLORS.blue.fill);
+        this.addLog(isZh 
+            ? `${this.shortNameR} 部署 ${this.routesR.length} 路大军`
+            : `${this.shortNameR} deploys ${this.routesR.length} army groups`, MAP_BATTLE.COLORS.red.fill);
         
-        setTimeout(() => this.animate(), 1200); // Wait for zoom
-    }
-    
-    showBanner(title, subtitle) {
-        let banner = document.getElementById('battleBanner');
-        if (!banner) {
-            banner = document.createElement('div');
-            banner.id = 'battleBanner';
-            banner.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:1500;background:rgba(10,14,23,0.92);backdrop-filter:blur(16px);padding:16px 36px;border-radius:14px;text-align:center;border:1px solid rgba(255,255,255,0.08);pointer-events:none;transition:all 0.5s;box-shadow:0 8px 30px rgba(0,0,0,0.4);max-width:460px;';
-            document.body.appendChild(banner);
+        if (this.distance > 50) {
+            this.addLog(isZh ? '海军舰队起航，横跨大洋' : 'Naval fleets set sail across the ocean', '#64748b');
         }
-        const shortTitle = (title||'').replace('United States of America', 'USA')
-            .replace('United Kingdom', 'UK')
-            .replace('Democratic Republic of the Congo', 'DR Congo')
-            .replace('Central African Republic', 'CAR');
-        let html = `<div style="font-size:18px;font-weight:700;color:#fff;letter-spacing:1px;">${shortTitle}</div>`;
-        if (subtitle) html += `<div style="font-size:11px;color:#94a3b8;margin-top:4px;line-height:1.5;max-width:400px;">${subtitle}</div>`;
-        banner.innerHTML = html;
-        banner.style.opacity = '1';
-    }
-    
-    updateBanner(text, color, subtitle) {
-        const banner = document.getElementById('battleBanner');
-        if (banner) {
-            const shortText = (text||'').replace('United States of America', 'USA')
-                .replace('United Kingdom', 'UK');
-            let html = `<div style="font-size:16px;font-weight:700;color:${color || '#fff'};letter-spacing:0.5px;">${shortText}</div>`;
-            if (subtitle) html += `<div style="font-size:11px;color:#94a3b8;margin-top:4px;max-width:400px;line-height:1.5;">${subtitle}</div>`;
-            banner.innerHTML = html;
-        }
-    }
-    
-    hideBanner() {
-        const banner = document.getElementById('battleBanner');
-        if (banner) { banner.style.opacity = '0'; setTimeout(() => banner.remove(), 500); }
+        
+        setTimeout(() => this.animate(), 1500);
     }
     
     animate() {
@@ -232,26 +318,26 @@ class MapBattle {
         
         // Phase transitions
         if (progress >= 1) {
-            if (this.phase === 'march') {
-                this.phase = 'battle';
+            if (this.phase === 'deploy') {
+                this.phase = 'march';
                 this.phaseStart = now;
-                this.updateBanner(
-                    typeof currentLang !== 'undefined' && currentLang === 'zh' ? '交战中' : 'BATTLE',
-                    '#fbbf24'
-                );
-            } else if (this.phase === 'battle') {
+                this.addLog(typeof currentLang !== 'undefined' && currentLang === 'zh' 
+                    ? '各路大军开始行军' : 'All forces begin their march', '#94a3b8');
+            } else if (this.phase === 'march') {
+                this.phase = 'engage';
+                this.phaseStart = now;
+                this.addLog(typeof currentLang !== 'undefined' && currentLang === 'zh'
+                    ? '前线接触！战斗开始！' : 'Contact! Battle engaged!', MAP_BATTLE.COLORS.clash);
+                // Create clash points
+                this.createClashPoints();
+            } else if (this.phase === 'engage') {
                 this.phase = 'resolve';
                 this.phaseStart = now;
-                const winName = getLocalName(this.winner === 'left' ? this.leftISO : this.rightISO);
-                const winColor = this.winner === 'left' ? MAP_BATTLE.COLORS.blue.fill : MAP_BATTLE.COLORS.red.fill;
-                this.updateBanner(
-                    `${winName} ${typeof currentLang !== 'undefined' && currentLang === 'zh' ? '获胜' : 'VICTORY'}`,
-                    winColor
-                );
+                this.resolveOutcome();
             } else if (this.phase === 'resolve') {
                 this.phase = 'aftermath';
                 this.phaseStart = now;
-            } else if (this.phase === 'aftermath' && elapsed > 4000) {
+            } else if (this.phase === 'aftermath') {
                 this.finish();
                 return;
             }
@@ -260,256 +346,355 @@ class MapBattle {
         this.animId = requestAnimationFrame(() => this.animate());
     }
     
-    update(progress) {
-        if (this.phase === 'march') {
-            // Units march toward battle point
-            ['left', 'right'].forEach(side => {
-                this.units[side].forEach(u => {
-                    if (u.dead) return;
-                    const speed = MAP_BATTLE.MARCH_SPEED * u.speed;
-                    const dlat = u.targetLat - u.lat;
-                    const dlng = u.targetLng - u.lng;
-                    const dist = Math.sqrt(dlat*dlat + dlng*dlng);
-                    if (dist > 0.1) {
-                        u.lat += (dlat / dist) * speed * 60;
-                        u.lng += (dlng / dist) * speed * 60;
-                    }
-                    // Add slight randomness to movement
-                    u.lat += (Math.random() - 0.5) * 0.02;
-                    u.lng += (Math.random() - 0.5) * 0.02;
-                });
+    createClashPoints() {
+        // Each route pair creates a clash point
+        const maxClash = Math.min(this.routesL.length, this.routesR.length);
+        for (let i = 0; i < maxClash; i++) {
+            const rL = this.routesL[i];
+            const rR = this.routesR[Math.min(i, this.routesR.length-1)];
+            const pt = bezierPoint(rL.from, rL.mid, rL.to, 1);
+            this.clashPoints.push({
+                lat: pt.lat + (Math.random()-0.5)*1,
+                lng: pt.lng + (Math.random()-0.5)*1,
+                intensity: 0,
+                maxIntensity: (rL.totalTroops + rR.totalTroops) / 200,
+                routeL: rL, routeR: rR,
+                resolved: false
             });
         }
-        else if (this.phase === 'battle') {
-            // Combat
-            const aliveL = this.units.left.filter(u => !u.dead);
-            const aliveR = this.units.right.filter(u => !u.dead);
+    }
+    
+    resolveOutcome() {
+        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
+        const winSide = this.winner;
+        const winName = winSide === 'left' ? this.shortNameL : this.shortNameR;
+        const loseName = winSide === 'left' ? this.shortNameR : this.shortNameL;
+        const winRoutes = winSide === 'left' ? this.routesL : this.routesR;
+        const loseRoutes = winSide === 'left' ? this.routesR : this.routesL;
+        const pct = Math.round(Math.max(this.ratioL, this.ratioR) * 100);
+        
+        // Determine losses
+        loseRoutes.forEach((r, i) => {
+            const lossRatio = 0.4 + Math.random() * 0.4; // lose 40-80%
+            r.casualties = Math.round(r.totalTroops * lossRatio);
+            if (lossRatio > 0.7) r.destroyed = true;
+        });
+        winRoutes.forEach(r => {
+            r.casualties = Math.round(r.totalTroops * (0.1 + Math.random() * 0.2));
+            r.won = true;
+        });
+        
+        const totalCasL = this.routesL.reduce((s,r) => s + r.casualties, 0);
+        const totalCasR = this.routesR.reduce((s,r) => s + r.casualties, 0);
+        
+        this.addLog('─────────────', '#334155');
+        this.addLog(isZh ? `${winName} 获胜！` : `${winName} WINS!`, MAP_BATTLE.COLORS.victory);
+        this.addLog(isZh 
+            ? `决定性战役：${pct}% 综合国力优势`
+            : `Decisive: ${pct}% combined strength advantage`, '#fff');
+        
+        // Report each route's fate
+        loseRoutes.forEach(r => {
+            if (r.destroyed) {
+                this.addLog(isZh 
+                    ? `${loseName} ${r.name_zh} 被歼灭`
+                    : `${loseName} ${r.name_en} destroyed`, MAP_BATTLE.COLORS.red.fill);
+            }
+        });
+        
+        const fmtK = n => n >= 1000 ? (n/1000).toFixed(0) + 'K' : n.toString();
+        this.addLog(isZh
+            ? `总伤亡：${this.shortNameL} ${fmtK(totalCasL)} / ${this.shortNameR} ${fmtK(totalCasR)}`
+            : `Casualties: ${this.shortNameL} ${fmtK(totalCasL)} / ${this.shortNameR} ${fmtK(totalCasR)}`, '#94a3b8');
+        
+        this.updateForceDisplay();
+    }
+    
+    update(progress) {
+        if (this.phase === 'deploy') {
+            // Routes slowly appear
+            this.routesL.forEach(r => r.progress = Math.min(0.05, progress * 0.05));
+            this.routesR.forEach(r => r.progress = Math.min(0.05, progress * 0.05));
+        }
+        else if (this.phase === 'march') {
+            // Armies advance along their Bezier paths
+            const staggered = (r, i) => {
+                const delay = i * 0.1; // stagger each route
+                const adj = Math.max(0, (progress - delay) / (1 - delay));
+                r.progress = Math.min(1, adj);
+                if (r.progress >= 0.95) r.arrived = true;
+            };
+            this.routesL.forEach(staggered);
+            this.routesR.forEach(staggered);
             
-            aliveL.forEach(u => {
-                let nearest = null, nearDist = Infinity;
-                aliveR.forEach(e => {
-                    const d = Math.sqrt((u.lat-e.lat)**2 + (u.lng-e.lng)**2);
-                    if (d < nearDist) { nearDist = d; nearest = e; }
-                });
-                if (nearest && nearDist < 1) {
-                    const dmg = (0.3 + this.ratioL * 1.2) * (0.8 + Math.random() * 0.4);
-                    nearest.hp -= dmg;
-                    if (this.tick % 3 === 0) {
-                        this.particles.push({
-                            lat: (u.lat + nearest.lat)/2, lng: (u.lng + nearest.lng)/2,
-                            vlat: (Math.random()-0.5)*0.05, vlng: (Math.random()-0.5)*0.05,
-                            life: 15, color: '#fbbf24'
-                        });
-                    }
-                    if (nearest.hp <= 0) {
-                        nearest.dead = true;
-                        for (let i = 0; i < 3; i++) {
-                            this.particles.push({
-                                lat: nearest.lat, lng: nearest.lng,
-                                vlat: (Math.random()-0.5)*0.08, vlng: (Math.random()-0.5)*0.08,
-                                life: 20, color: MAP_BATTLE.COLORS.red.fill
-                            });
-                        }
-                    }
-                } else if (nearest) {
-                    // Move toward enemy
-                    u.lat += (nearest.lat - u.lat) * 0.01;
-                    u.lng += (nearest.lng - u.lng) * 0.01;
-                }
+            // Update force display during march
+            if (this.tick % 30 === 0) this.updateForceDisplay();
+        }
+        else if (this.phase === 'engage') {
+            // Clash intensity grows, casualties accumulate
+            this.clashPoints.forEach(cp => {
+                cp.intensity = Math.min(cp.maxIntensity, cp.intensity + 0.1);
             });
             
-            aliveR.forEach(u => {
-                let nearest = null, nearDist = Infinity;
-                aliveL.forEach(e => {
-                    const d = Math.sqrt((u.lat-e.lat)**2 + (u.lng-e.lng)**2);
-                    if (d < nearDist) { nearDist = d; nearest = e; }
-                });
-                if (nearest && nearDist < 1) {
-                    const dmg = (0.3 + this.ratioR * 1.2) * (0.8 + Math.random() * 0.4);
-                    nearest.hp -= dmg;
-                    if (nearest.hp <= 0) {
-                        nearest.dead = true;
-                        for (let i = 0; i < 3; i++) {
-                            this.particles.push({
-                                lat: nearest.lat, lng: nearest.lng,
-                                vlat: (Math.random()-0.5)*0.08, vlng: (Math.random()-0.5)*0.08,
-                                life: 20, color: MAP_BATTLE.COLORS.blue.fill
-                            });
-                        }
-                    }
-                } else if (nearest) {
-                    u.lat += (nearest.lat - u.lat) * 0.01;
-                    u.lng += (nearest.lng - u.lng) * 0.01;
-                }
+            // Gradual casualties during battle
+            const dmgRate = progress * 0.6;
+            const winRoutes = this.winner === 'left' ? this.routesL : this.routesR;
+            const loseRoutes = this.winner === 'left' ? this.routesR : this.routesL;
+            loseRoutes.forEach(r => {
+                r.casualties = Math.round(r.totalTroops * dmgRate * (0.5 + Math.random() * 0.1));
             });
+            winRoutes.forEach(r => {
+                r.casualties = Math.round(r.totalTroops * dmgRate * (0.1 + Math.random() * 0.05));
+            });
+            
+            if (this.tick % 20 === 0) this.updateForceDisplay();
+            
+            // Add battle events
+            if (this.tick % 60 === 30) {
+                const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
+                const events_en = [
+                    'Heavy fighting on the front line',
+                    'Artillery exchange intensifies',
+                    'Flanking maneuver attempted',
+                    'Defensive line under pressure',
+                    'Reinforcements deployed'
+                ];
+                const events_zh = ['前线激战','炮火交换加剧','侧翼机动','防线承压','增援部队抵达'];
+                const idx = Math.floor(Math.random() * events_en.length);
+                this.addLog(isZh ? events_zh[idx] : events_en[idx], MAP_BATTLE.COLORS.clash);
+            }
         }
         else if (this.phase === 'resolve') {
-            // Loser retreats
-            const loserSide = this.winner === 'left' ? 'right' : 'left';
-            const retreatTo = this.winner === 'left' ? this.posR : this.posL;
-            this.units[loserSide].forEach(u => {
-                if (u.dead) return;
-                u.lat += (retreatTo.lat - u.lat) * 0.02;
-                u.lng += (retreatTo.lng - u.lng) * 0.02;
-                u.hp -= 0.8;
-                if (u.hp <= 0) u.dead = true;
+            // Winner pushes forward, loser retreats
+            const loseRoutes = this.winner === 'left' ? this.routesR : this.routesL;
+            loseRoutes.forEach(r => {
+                if (!r.destroyed) r.progress = Math.max(0, r.progress - progress * 0.3);
             });
         }
-        // Aftermath: units hold position, winner celebrates
-        else if (this.phase === 'aftermath') {
-            // Gentle drift for winner units
-            this.units[this.winner].forEach(u => {
-                if (u.dead) return;
-                u.lat += (Math.random() - 0.5) * 0.005;
-                u.lng += (Math.random() - 0.5) * 0.005;
-            });
-        }
-        
-        // Update particles
-        this.particles.forEach(p => {
-            p.lat += p.vlat;
-            p.lng += p.vlng;
-            p.vlat *= 0.93;
-            p.vlng *= 0.93;
-            p.life--;
-        });
-        this.particles = this.particles.filter(p => p.life > 0);
     }
     
     draw() {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, this.w, this.h);
         
-        // Dark overlay for contrast during battle
-        ctx.fillStyle = 'rgba(5,8,15,0.35)';
+        // Dark overlay
+        ctx.fillStyle = 'rgba(5,8,15,0.3)';
         ctx.fillRect(0, 0, this.w, this.h);
         
-        // Draw march path lines with animated dashes
-        if (this.phase === 'march' || this.phase === 'battle') {
-            ctx.lineWidth = 2;
-            ctx.setLineDash([6, 8]);
-            ctx.lineDashOffset = -this.tick * 0.5;
-            
-            // Blue path
-            ctx.strokeStyle = 'rgba(59,130,246,0.25)';
-            const fromL = this.latLngToPixel(this.posL.lat, this.posL.lng);
-            const toB = this.latLngToPixel(this.battleLat, this.battleLng);
-            ctx.beginPath(); ctx.moveTo(fromL.x, fromL.y); ctx.lineTo(toB.x, toB.y); ctx.stroke();
-            
-            // Red path
-            ctx.strokeStyle = 'rgba(239,68,68,0.25)';
-            const fromR = this.latLngToPixel(this.posR.lat, this.posR.lng);
-            ctx.beginPath(); ctx.moveTo(fromR.x, fromR.y); ctx.lineTo(toB.x, toB.y); ctx.stroke();
-            ctx.setLineDash([]);
-            
-            // Battle point marker
-            ctx.beginPath();
-            ctx.fillStyle = 'rgba(251,191,36,0.3)';
-            ctx.arc(toB.x, toB.y, 8 + Math.sin(this.tick * 0.1) * 3, 0, Math.PI * 2);
-            ctx.fill();
-        }
+        // Draw army routes as arrows
+        this.drawRoutes(this.routesL, MAP_BATTLE.COLORS.blue, 'left');
+        this.drawRoutes(this.routesR, MAP_BATTLE.COLORS.red, 'right');
         
-        // Draw units
-        this.drawUnits('left', MAP_BATTLE.COLORS.blue);
-        this.drawUnits('right', MAP_BATTLE.COLORS.red);
+        // Draw clash points (crossed swords / battle symbol)
+        this.drawClashPoints();
         
-        // Draw particles with varying sizes
-        this.particles.forEach(p => {
-            const px = this.latLngToPixel(p.lat, p.lng);
-            const alpha = p.life / 20;
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = p.color;
-            const size = 1.5 + (1 - alpha) * 3; // grow as they fade
-            ctx.beginPath();
-            ctx.arc(px.x, px.y, size, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.globalAlpha = 1;
-        });
-        
-        // Casualty counter
-        const deadL = this.units.left.filter(u => u.dead).length;
-        const deadR = this.units.right.filter(u => u.dead).length;
-        // Casualty counter with background pill
-        const nameL = typeof getLocalName !== 'undefined' ? getLocalName(this.leftISO) : this.leftISO;
-        const nameR = typeof getLocalName !== 'undefined' ? getLocalName(this.rightISO) : this.rightISO;
-        
-        // Left pill
-        const lText = `${nameL.slice(0,10)}  ${this.unitCountL - deadL}/${this.unitCountL}`;
-        ctx.font = '600 11px Inter, sans-serif';
-        const lWidth = ctx.measureText(lText).width + 16;
-        ctx.fillStyle = 'rgba(10,14,23,0.75)';
-        ctx.beginPath();
-        ctx.roundRect(8, this.h - 30, lWidth, 22, 6);
-        ctx.fill();
-        ctx.fillStyle = MAP_BATTLE.COLORS.blue.fill;
-        ctx.textAlign = 'left';
-        ctx.fillText(lText, 16, this.h - 15);
-        
-        // Right pill  
-        const rText = `${this.unitCountR - deadR}/${this.unitCountR}  ${nameR.slice(0,10)}`;
-        const rWidth = ctx.measureText(rText).width + 16;
-        ctx.fillStyle = 'rgba(10,14,23,0.75)';
-        ctx.beginPath();
-        ctx.roundRect(this.w - rWidth - 8, this.h - 30, rWidth, 22, 6);
-        ctx.fill();
-        ctx.fillStyle = MAP_BATTLE.COLORS.red.fill;
-        ctx.textAlign = 'right';
-        ctx.fillText(rText, this.w - 16, this.h - 15);
+        // Draw battle banner at top center
+        this.drawTopBanner();
     }
     
-    drawUnits(side, colors) {
+    drawRoutes(routes, colors, side) {
         const ctx = this.ctx;
-        this.units[side].forEach(u => {
-            if (u.dead) return;
-            const px = this.latLngToPixel(u.lat, u.lng);
-            const hpRatio = u.hp / u.maxHp;
-            const s = MAP_BATTLE.UNIT_SIZE;
+        
+        routes.forEach(route => {
+            if (route.destroyed && this.phase === 'aftermath') return;
             
-            ctx.globalAlpha = 0.5 + hpRatio * 0.5;
+            const prog = route.progress;
+            if (prog <= 0) return;
             
-            // Strong glow for visibility on dark map
-            ctx.fillStyle = colors.glow;
+            // Draw the path (Bezier curve) up to current progress
+            const steps = 40;
+            const maxStep = Math.floor(steps * prog);
+            
+            // Arrow body: thick line along path
+            const width = Math.max(3, Math.min(8, route.totalTroops / 150));
+            const alpha = route.destroyed ? 0.2 : 0.7;
+            
             ctx.beginPath();
-            ctx.arc(px.x, px.y, s + 5, 0, Math.PI * 2);
-            ctx.fill();
-            // Inner glow
-            ctx.fillStyle = colors.glow.replace('0.5)', '0.2)');
-            ctx.beginPath();
-            ctx.arc(px.x, px.y, s + 10, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.strokeStyle = colors.fill;
+            ctx.lineWidth = width;
+            ctx.globalAlpha = alpha;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
             
-            // Combat flash
-            if (this.phase === 'battle' && this.tick % 4 < 2 && u.hp < u.maxHp) {
-                ctx.fillStyle = 'rgba(255,255,255,0.3)';
-                ctx.beginPath();
-                ctx.arc(px.x, px.y, s + 5, 0, Math.PI * 2);
-                ctx.fill();
+            for (let i = 0; i <= maxStep; i++) {
+                const t = i / steps;
+                const pt = bezierPoint(route.from, route.mid, route.to, t);
+                const px = this.latLngToPixel(pt.lat, pt.lng);
+                if (i === 0) ctx.moveTo(px.x, px.y);
+                else ctx.lineTo(px.x, px.y);
             }
-            
-            // Unit body (circle for better visibility)
-            ctx.fillStyle = hpRatio > 0.4 ? colors.fill : colors.stroke;
-            ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.arc(px.x, px.y, s, 0, Math.PI * 2);
-            ctx.fill();
             ctx.stroke();
             
+            // Glow line underneath
+            ctx.beginPath();
+            ctx.strokeStyle = colors.glow;
+            ctx.lineWidth = width + 6;
+            ctx.globalAlpha = alpha * 0.3;
+            
+            for (let i = 0; i <= maxStep; i++) {
+                const t = i / steps;
+                const pt = bezierPoint(route.from, route.mid, route.to, t);
+                const px = this.latLngToPixel(pt.lat, pt.lng);
+                if (i === 0) ctx.moveTo(px.x, px.y);
+                else ctx.lineTo(px.x, px.y);
+            }
+            ctx.stroke();
             ctx.globalAlpha = 1;
+            
+            // Arrowhead at current position
+            if (maxStep > 2 && !route.destroyed) {
+                const t1 = Math.max(0, (maxStep - 1) / steps);
+                const t2 = maxStep / steps;
+                const p1 = bezierPoint(route.from, route.mid, route.to, t1);
+                const p2 = bezierPoint(route.from, route.mid, route.to, t2);
+                const px1 = this.latLngToPixel(p1.lat, p1.lng);
+                const px2 = this.latLngToPixel(p2.lat, p2.lng);
+                
+                const angle = Math.atan2(px2.y - px1.y, px2.x - px1.x);
+                const headLen = width * 2.5;
+                
+                ctx.fillStyle = colors.fill;
+                ctx.beginPath();
+                ctx.moveTo(px2.x, px2.y);
+                ctx.lineTo(px2.x - headLen * Math.cos(angle - 0.4), px2.y - headLen * Math.sin(angle - 0.4));
+                ctx.lineTo(px2.x - headLen * Math.cos(angle + 0.4), px2.y - headLen * Math.sin(angle + 0.4));
+                ctx.closePath();
+                ctx.fill();
+                
+                // Route label near arrowhead
+                if (this.phase !== 'aftermath') {
+                    const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
+                    const label = isZh ? route.name_zh : route.name_en;
+                    ctx.font = '600 9px Inter, sans-serif';
+                    ctx.fillStyle = colors.fill;
+                    ctx.globalAlpha = 0.8;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(label, px2.x, px2.y - width - 6);
+                    ctx.globalAlpha = 1;
+                }
+            }
+            
+            // Naval route: draw wave dashes
+            if (route.isNaval && !route.destroyed) {
+                ctx.setLineDash([3, 6]);
+                ctx.lineDashOffset = -this.tick * 0.3;
+                ctx.strokeStyle = 'rgba(56,189,248,0.3)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                for (let i = 0; i <= maxStep; i++) {
+                    const t = i / steps;
+                    const pt = bezierPoint(route.from, route.mid, route.to, t);
+                    const px = this.latLngToPixel(pt.lat, pt.lng);
+                    if (i === 0) ctx.moveTo(px.x, px.y + 4);
+                    else ctx.lineTo(px.x, px.y + 4);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
         });
+    }
+    
+    drawClashPoints() {
+        const ctx = this.ctx;
+        
+        this.clashPoints.forEach(cp => {
+            if (cp.intensity <= 0) return;
+            
+            const px = this.latLngToPixel(cp.lat, cp.lng);
+            const size = 8 + cp.intensity * 2;
+            
+            // Pulsing glow
+            const pulse = Math.sin(this.tick * 0.08) * 0.3 + 0.7;
+            ctx.globalAlpha = pulse * 0.6;
+            ctx.fillStyle = MAP_BATTLE.COLORS.clash;
+            ctx.beginPath();
+            ctx.arc(px.x, px.y, size + 8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Battle symbol: crossed swords (X)
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = MAP_BATTLE.COLORS.clash;
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.moveTo(px.x - size, px.y - size);
+            ctx.lineTo(px.x + size, px.y + size);
+            ctx.moveTo(px.x + size, px.y - size);
+            ctx.lineTo(px.x - size, px.y + size);
+            ctx.stroke();
+            
+            // Small circle at center
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(px.x, px.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Sparks during engage phase
+            if (this.phase === 'engage' && this.tick % 3 === 0) {
+                ctx.fillStyle = MAP_BATTLE.COLORS.clash;
+                for (let i = 0; i < 3; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = size + Math.random() * 10;
+                    ctx.globalAlpha = 0.6;
+                    ctx.beginPath();
+                    ctx.arc(px.x + Math.cos(angle)*dist, px.y + Math.sin(angle)*dist, 1.5, 0, Math.PI*2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+            }
+        });
+    }
+    
+    drawTopBanner() {
+        const ctx = this.ctx;
+        const cx = this.w / 2;
+        
+        // Phase indicator at top
+        let phaseText = '';
+        let phaseColor = '#fff';
+        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
+        
+        if (this.phase === 'deploy') {
+            phaseText = isZh ? '部署阶段' : 'DEPLOYING FORCES';
+            phaseColor = '#38bdf8';
+        } else if (this.phase === 'march') {
+            phaseText = isZh ? '行军中' : 'ARMIES MARCHING';
+            phaseColor = '#38bdf8';
+        } else if (this.phase === 'engage') {
+            phaseText = isZh ? '交战中' : 'BATTLE IN PROGRESS';
+            phaseColor = MAP_BATTLE.COLORS.clash;
+        } else if (this.phase === 'resolve' || this.phase === 'aftermath') {
+            const winName = this.winner === 'left' ? this.shortNameL : this.shortNameR;
+            phaseText = isZh ? `${winName} 获胜` : `${winName} VICTORY`;
+            phaseColor = MAP_BATTLE.COLORS.victory;
+        }
+        
+        // Banner background
+        const bannerW = Math.max(200, ctx.measureText(phaseText).width + 60);
+        ctx.fillStyle = 'rgba(10,14,23,0.85)';
+        ctx.beginPath();
+        ctx.roundRect(cx - bannerW/2, 10, bannerW, 36, 10);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        
+        ctx.font = '700 14px Inter, sans-serif';
+        ctx.fillStyle = phaseColor;
+        ctx.textAlign = 'center';
+        ctx.fillText(phaseText, cx, 34);
     }
     
     finish() {
         this.running = false;
         if (this.animId) cancelAnimationFrame(this.animId);
         
-        // Add "Battle Again" button
+        // Add BATTLE AGAIN button
         let againBtn = document.getElementById('battleAgainBtn');
         if (!againBtn) {
             againBtn = document.createElement('button');
             againBtn.id = 'battleAgainBtn';
-            againBtn.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:1500;background:linear-gradient(135deg,#1e3a8a,#4c1d95,#7f1d1d);color:#fff;border:none;border-radius:10px;padding:10px 28px;font-size:12px;font-weight:700;letter-spacing:2px;cursor:pointer;font-family:Inter,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,0.4);transition:all 0.2s;';
-            againBtn.textContent = 'BATTLE AGAIN';
+            againBtn.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:1500;background:linear-gradient(135deg,#1e3a8a,#4c1d95);color:#fff;border:none;border-radius:10px;padding:10px 28px;font-size:12px;font-weight:700;letter-spacing:2px;cursor:pointer;font-family:Inter,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,0.4);transition:all 0.2s;';
+            againBtn.textContent = typeof currentLang !== 'undefined' && currentLang === 'zh' ? '再战一场' : 'BATTLE AGAIN';
             againBtn.addEventListener('click', () => {
                 this.cleanup();
                 againBtn.remove();
@@ -518,20 +703,21 @@ class MapBattle {
             document.body.appendChild(againBtn);
         }
         
-        // Auto cleanup after 8 seconds
+        // Auto cleanup after 10 seconds
         setTimeout(() => {
             this.cleanup();
-            if (againBtn.parentNode) againBtn.remove();
-            if (this.onComplete) {
-                this.onComplete(this.winner, this.ratioL, this.ratioR);
-            }
-        }, 8000);
+            if (againBtn && againBtn.parentNode) againBtn.remove();
+            if (this.onComplete) this.onComplete(this.winner, this.ratioL, this.ratioR);
+        }, 10000);
     }
     
     cleanup() {
         if (this.canvas) this.canvas.remove();
         window.removeEventListener('resize', this._resizeHandler);
-        this.hideBanner();
+        const panel = document.getElementById('warLogPanel');
+        if (panel) panel.remove();
+        const banner = document.getElementById('battleBanner');
+        if (banner) banner.remove();
     }
     
     stop() {
@@ -586,15 +772,24 @@ function showVsModal() {
             }
         });
         
-        // Setup search dropdowns
         setupVsSearch('vsSearchLeft', 'vsDropLeft', 'vsSelectedLeft', 0);
         setupVsSearch('vsSearchRight', 'vsDropRight', 'vsSelectedRight', 1);
     }
     
+    // Reset state
     modal.style.display = 'block';
     vsModalCountries = [null, null];
     vsModalSlot = 0;
     vsModalSelecting = true;
+    
+    // Reset search inputs
+    ['Left','Right'].forEach(side => {
+        const input = document.getElementById('vsSearch' + side);
+        const sel = document.getElementById('vsSelected' + side);
+        if (input) { input.style.display = ''; input.value = ''; }
+        if (sel) sel.style.display = 'none';
+    });
+    
     updateVsModal();
 }
 
@@ -602,18 +797,10 @@ let vsModalCountries = [null, null];
 let vsModalSlot = 0;
 let vsModalSelecting = false;
 
-function vsModalSelect(side) {
-    vsModalSlot = side === 'left' ? 0 : 1;
-    // Highlight active slot
-    document.getElementById('vsModalLeft').classList.toggle('active', vsModalSlot === 0);
-    document.getElementById('vsModalRight').classList.toggle('active', vsModalSlot === 1);
-}
-
 function vsModalPickCountry(iso) {
     if (!vsModalSelecting) return;
     vsModalCountries[vsModalSlot] = iso;
     
-    // Update the search UI for this slot
     const side = vsModalSlot === 0 ? 'Left' : 'Right';
     const sel = document.getElementById('vsSelected' + side);
     const input = document.getElementById('vsSearch' + side);
@@ -622,7 +809,8 @@ function vsModalPickCountry(iso) {
         sel.textContent = typeof getLocalName !== 'undefined' ? getLocalName(iso) : iso;
         sel.style.display = 'block';
         sel.style.color = vsModalSlot === 0 ? '#3b82f6' : '#ef4444';
-        sel.onclick = () => { vsModalCountries[vsModalSlot === 0 ? 0 : 1] = null; sel.style.display = 'none'; input.style.display = ''; input.value = ''; updateVsModal(); };
+        const currentSlot = vsModalSlot;
+        sel.onclick = () => { vsModalCountries[currentSlot] = null; sel.style.display = 'none'; input.style.display = ''; input.value = ''; updateVsModal(); };
         input.style.display = 'none';
         if (drop) drop.style.display = 'none';
     }
@@ -632,7 +820,6 @@ function vsModalPickCountry(iso) {
 }
 
 function updateVsModal() {
-    // Update search-based selection display
     [0, 1].forEach(idx => {
         const side = idx === 0 ? 'Left' : 'Right';
         const sel = document.getElementById('vsSelected' + side);
@@ -650,7 +837,6 @@ function updateVsModal() {
     const goBtn = document.getElementById('vsModalGo');
     if (goBtn) goBtn.disabled = !(vsModalCountries[0] && vsModalCountries[1]);
     
-    // Show stat preview
     const preview = document.getElementById('vsModalPreview');
     if (preview && vsModalCountries[0] && vsModalCountries[1]) {
         const fmtPop = typeof formatPopShort !== 'undefined' ? formatPopShort : n => n.toLocaleString();
@@ -671,7 +857,6 @@ function closeVsModal() {
 }
 
 function launchMapBattle(isoL, isoR) {
-    // Close any existing panels
     document.getElementById('comparePanel').style.display = 'none';
     compareMode = false;
     
@@ -684,7 +869,6 @@ function launchMapBattle(isoL, isoR) {
     if (activeMapBattle) activeMapBattle.stop();
     activeMapBattle = new MapBattle(map, isoL, isoR, year, data);
     activeMapBattle.start((winner, ratioL, ratioR) => {
-        // Battle complete - show result
         activeMapBattle = null;
     });
 }
@@ -693,7 +877,6 @@ function setupVsSearch(inputId, dropId, selectedId, slotIdx) {
     const input = document.getElementById(inputId);
     const drop = document.getElementById(dropId);
     
-    // Get all countries with data
     function getCountryList() {
         const list = [];
         if (typeof COUNTRY_NAMES !== 'undefined') {
