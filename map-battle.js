@@ -353,17 +353,13 @@ class MapBattle {
     }
     
     createClashPoints() {
-        const maxClash = Math.min(this.routesL.length, this.routesR.length);
-        for (let i = 0; i < maxClash; i++) {
-            const rL = this.routesL[i];
-            const pt = bezierPoint(rL.from, rL.mid, rL.to, 1);
-            this.clashPoints.push({
-                lat: pt.lat + (Math.random() - 0.5) * 1,
-                lng: pt.lng + (Math.random() - 0.5) * 1,
-                intensity: 0,
-                maxIntensity: 1,
-            });
-        }
+        // Single clash point at battle center (avoid overlapping multiples)
+        this.clashPoints = [{
+            lat: this.battleLat + (Math.random() - 0.5) * 0.5,
+            lng: this.battleLng + (Math.random() - 0.5) * 0.5,
+            intensity: 0,
+            maxIntensity: 1,
+        }];
     }
     
     resolveOutcome() {
