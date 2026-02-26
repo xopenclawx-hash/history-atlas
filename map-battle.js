@@ -466,8 +466,9 @@ class MapBattle {
             if (this.tick % 20 === 0) this.updateForceDisplay();
             
             // Add contextual battle events
-            if (this.tick % 50 === 25 && !this._lastEventTick || this.tick - this._lastEventTick > 40) {
+            if (this.tick % 50 === 25 && (!this._lastEventTick || this.tick - this._lastEventTick > 45)) {
                 this._lastEventTick = this.tick;
+                if (!this._usedEvents) this._usedEvents = new Set();
                 const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
                 const winSide = this.winner;
                 const winName = winSide === 'left' ? this.shortNameL : this.shortNameR;
@@ -490,8 +491,15 @@ class MapBattle {
                 ];
                 
                 const pool = progress < 0.33 ? earlyEvents : progress < 0.66 ? midEvents : lateEvents;
-                const evt = pool[Math.floor(Math.random() * pool.length)];
-                this.addLog(isZh ? evt[1] : evt[0], MAP_BATTLE.COLORS.clash);
+                // Avoid repeats
+                const available = pool.filter((_, i) => !this._usedEvents.has(progress < 0.33 ? 'e'+i : progress < 0.66 ? 'm'+i : 'l'+i));
+                if (available.length > 0) {
+                    const idx = Math.floor(Math.random() * available.length);
+                    const evt = available[idx];
+                    const origIdx = pool.indexOf(evt);
+                    this._usedEvents.add(progress < 0.33 ? 'e'+origIdx : progress < 0.66 ? 'm'+origIdx : 'l'+origIdx);
+                    this.addLog(isZh ? evt[1] : evt[0], MAP_BATTLE.COLORS.clash);
+                }
             }
         }
         else if (this.phase === 'resolve') {
@@ -591,8 +599,9 @@ class MapBattle {
                 ctx.closePath();
                 ctx.fill();
                 
-                // Route label near arrowhead with troop count
+                // Route label near arrowhead with troop count (offset vertically to avoid overlap)
                 if (this.phase !== 'aftermath') {
+                    const labelOffset = route.id * 18; // stagger labels vertically
                     const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
                     const label = isZh ? route.name_zh : route.name_en;
                     const fmtK = n => n >= 1000 ? (n/1000).toFixed(0) + 'M' : n + 'K';
@@ -605,12 +614,12 @@ class MapBattle {
                     ctx.fillStyle = 'rgba(10,14,23,0.8)';
                     ctx.globalAlpha = 0.9;
                     ctx.beginPath();
-                    ctx.roundRect(px2.x - labelW/2, px2.y - width - 20, labelW, 16, 4);
+                    ctx.roundRect(px2.x - labelW/2, px2.y - width - 20 - labelOffset, labelW, 16, 4);
                     ctx.fill();
                     
                     ctx.fillStyle = colors.fill;
                     ctx.textAlign = 'center';
-                    ctx.fillText(fullLabel, px2.x, px2.y - width - 8);
+                    ctx.fillText(fullLabel, px2.x, px2.y - width - 8 - labelOffset);
                     ctx.globalAlpha = 1;
                 }
             }
@@ -776,9 +785,13 @@ class MapBattle {
             document.body.appendChild(victoryBanner);
         }
         
-        // Auto-scroll war log to bottom
-        const logEntries = document.getElementById('warLogEntries');
-        if (logEntries) logEntries.scrollTop = logEntries.scrollHeight;
+        // Auto-scroll war log to bottom (with delay to ensure content rendered)
+        setTimeout(() => {
+            const logEntries = document.getElementById('warLogEntries');
+            if (logEntries) logEntries.scrollTop = logEntries.scrollHeight;
+            const panel = document.getElementById('warLogPanel');
+            if (panel) panel.scrollTop = panel.scrollHeight;
+        }, 200);
         
         // Add BATTLE AGAIN button
         let againBtn = document.getElementById('battleAgainBtn');
