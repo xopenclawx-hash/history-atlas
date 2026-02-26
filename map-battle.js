@@ -180,14 +180,14 @@ class BattleArena {
             .battle-stat-value { font-weight:700; font-size:14px; }
             .battle-army { display:flex; align-items:center; gap:6px; margin:3px 0; font-size:11px; padding:5px 10px; border-radius:6px; transition:all 0.5s; }
             .battle-army.destroyed { opacity:0.3; text-decoration:line-through; }
-            .battle-hp-bar { height:4px; border-radius:2px; transition:width 0.5s ease; }
+            .battle-hp-bar { height:5px; border-radius:2.5px; transition:width 0.5s ease, background 0.5s ease; }
             .battle-center { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; z-index:5; pointer-events:none; }
             .battle-vs { font-size:clamp(60px,10vw,120px); font-weight:900; opacity:0.04; letter-spacing:12px; color:#fff; }
             .battle-phase { font-size:12px; letter-spacing:3px; margin-top:10px; }
             .battle-log { position:absolute; bottom:50px; left:50%; transform:translateX(-50%); width:460px; max-height:130px; overflow-y:auto; z-index:20; background:rgba(5,8,18,0.6); backdrop-filter:blur(8px); border-radius:10px; padding:10px 14px; border:1px solid rgba(255,255,255,0.03); }
             .battle-log-entry { font-size:11px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); line-height:1.5; }
-            .battle-force-bar { position:absolute; top:20px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:12px; z-index:20; }
-            .battle-force-track { width:300px; height:8px; border-radius:4px; overflow:hidden; display:flex; background:rgba(255,255,255,0.03); }
+            .battle-force-bar { position:absolute; top:20px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:14px; z-index:20; background:rgba(5,8,18,0.7); backdrop-filter:blur(8px); padding:10px 20px; border-radius:20px; border:1px solid rgba(255,255,255,0.04); }
+            .battle-force-track { width:320px; height:8px; border-radius:4px; overflow:hidden; display:flex; background:rgba(255,255,255,0.03); gap:2px; }
             .battle-force-fill-l { background:linear-gradient(90deg,${MAP_BATTLE_CFG.COLORS.blue.dark},${MAP_BATTLE_CFG.COLORS.blue.main}); transition:flex 0.8s ease; border-radius:4px 0 0 4px; }
             .battle-force-fill-r { background:linear-gradient(90deg,${MAP_BATTLE_CFG.COLORS.red.main},${MAP_BATTLE_CFG.COLORS.red.dark}); transition:flex 0.8s ease; border-radius:0 4px 4px 0; }
             .battle-btn { position:absolute; z-index:30; background:rgba(30,40,70,0.9); backdrop-filter:blur(12px); color:#e2e8f0; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px 24px; font-size:11px; font-weight:600; letter-spacing:2px; cursor:pointer; font-family:Inter,system-ui,sans-serif; display:none; transition:all 0.3s; }
@@ -199,6 +199,8 @@ class BattleArena {
             .battle-bg-pattern { position:absolute;top:0;left:0;width:100%;height:100%;opacity:0.015;background:repeating-linear-gradient(45deg,transparent,transparent 40px,rgba(255,255,255,0.5) 40px,rgba(255,255,255,0.5) 41px);pointer-events:none; }
             @keyframes slideInLeft { from { transform:translateX(-60px); opacity:0; } to { transform:translateX(0); opacity:1; } }
             @keyframes slideInRight { from { transform:translateX(60px); opacity:0; } to { transform:translateX(0); opacity:1; } }
+            @keyframes destroyFlash { 0% { background:rgba(239,68,68,0.3); } 100% { background:transparent; } }
+            @keyframes victoryPulse { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
             .battle-left { animation:slideInLeft 1s ease 0.3s both; }
             .battle-right { animation:slideInRight 1s ease 0.3s both; }
         </style>
@@ -369,22 +371,47 @@ class BattleArena {
                 a.casualties = Math.round(a.troops * (1 - a.hp / 100));
             });
             
-            // Update HP bars
+            // Update HP bars with color transitions
+            const hpColor = (hp, baseColor) => {
+                if (hp > 60) return baseColor;
+                if (hp > 30) return '#f59e0b'; // yellow
+                return '#ef4444'; // red
+            };
             this.armiesL.forEach((a, i) => {
                 const hpEl = document.getElementById('bArmyLH' + i);
                 const tEl = document.getElementById('bArmyLT' + i);
                 const rowEl = document.getElementById('bArmyL' + i);
-                if (hpEl) hpEl.style.width = a.hp + '%';
+                if (hpEl) {
+                    hpEl.style.width = a.hp + '%';
+                    hpEl.style.background = hpColor(a.hp, MAP_BATTLE_CFG.COLORS.blue.main);
+                }
                 if (tEl) tEl.textContent = fmtK(Math.max(0, a.troops - a.casualties));
-                if (rowEl) rowEl.classList.toggle('destroyed', a.destroyed);
+                if (rowEl) {
+                    if (a.destroyed && !rowEl.classList.contains('destroyed')) {
+                        rowEl.style.animation = 'none';
+                        rowEl.offsetHeight; // reflow
+                        rowEl.style.animation = 'destroyFlash 0.5s ease';
+                    }
+                    rowEl.classList.toggle('destroyed', a.destroyed);
+                }
             });
             this.armiesR.forEach((a, i) => {
                 const hpEl = document.getElementById('bArmyRH' + i);
                 const tEl = document.getElementById('bArmyRT' + i);
                 const rowEl = document.getElementById('bArmyR' + i);
-                if (hpEl) hpEl.style.width = a.hp + '%';
+                if (hpEl) {
+                    hpEl.style.width = a.hp + '%';
+                    hpEl.style.background = hpColor(a.hp, MAP_BATTLE_CFG.COLORS.red.main);
+                }
                 if (tEl) tEl.textContent = fmtK(Math.max(0, a.troops - a.casualties));
-                if (rowEl) rowEl.classList.toggle('destroyed', a.destroyed);
+                if (rowEl) {
+                    if (a.destroyed && !rowEl.classList.contains('destroyed')) {
+                        rowEl.style.animation = 'none';
+                        rowEl.offsetHeight;
+                        rowEl.style.animation = 'destroyFlash 0.5s ease';
+                    }
+                    rowEl.classList.toggle('destroyed', a.destroyed);
+                }
             });
             
             // Update force bars
@@ -520,7 +547,7 @@ class BattleArena {
             center.innerHTML = `
                 <div style="font-size:10px;color:#64748b;letter-spacing:4px;font-weight:600;margin-bottom:8px;">${iz ? '战争结束' : 'WAR CONCLUDED'}</div>
                 <div style="font-size:clamp(36px,6vw,64px);font-weight:900;color:${winColor};letter-spacing:2px;text-shadow:0 0 40px ${winColor}33;">${wn}</div>
-                <div style="font-size:14px;color:${MAP_BATTLE_CFG.COLORS.victory};font-weight:700;letter-spacing:3px;margin-top:4px;">${iz ? '获胜' : 'VICTORY'}</div>
+                <div style="font-size:14px;color:${MAP_BATTLE_CFG.COLORS.victory};font-weight:700;letter-spacing:4px;margin-top:4px;animation:victoryPulse 2s ease infinite;">${iz ? '获胜' : 'VICTORY'}</div>
             `;
         }
         
@@ -528,18 +555,20 @@ class BattleArena {
         const btn = document.getElementById('bAgainBtn');
         if (btn) btn.style.display = 'block';
         
-        // Victory particles burst
-        const cx = this.w / 2, cy = this.h / 2;
-        for (let i = 0; i < 50; i++) {
+        // Victory confetti burst
+        const cxV = this.w / 2, cyV = this.h / 2;
+        for (let i = 0; i < 80; i++) {
             const angle = Math.random() * Math.PI * 2;
-            const speed = 2 + Math.random() * 5;
+            const speed = 1.5 + Math.random() * 6;
+            const colors = [winColor, MAP_BATTLE_CFG.COLORS.gold, MAP_BATTLE_CFG.COLORS.victory, '#fff', winColor];
             this.particles.push({
-                x: cx, y: cy,
+                x: cxV + (Math.random() - 0.5) * 40,
+                y: cyV + (Math.random() - 0.5) * 20,
                 vx: Math.cos(angle) * speed,
-                vy: Math.sin(angle) * speed - 1,
-                life: 1 + Math.random() * 0.5,
-                color: Math.random() > 0.5 ? winColor : MAP_BATTLE_CFG.COLORS.gold,
-                size: 2 + Math.random() * 3,
+                vy: Math.sin(angle) * speed - 2,
+                life: 1.5 + Math.random() * 1,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                size: 1.5 + Math.random() * 3,
             });
         }
     }
@@ -549,6 +578,19 @@ class BattleArena {
         ctx.clearRect(0, 0, this.w, this.h);
         
         const cx = this.w / 2, cy = this.h / 2;
+        
+        // Ambient floating dust particles
+        if (this.tick % 8 === 0) {
+            this.particles.push({
+                x: Math.random() * this.w,
+                y: this.h + 5,
+                vx: (Math.random() - 0.5) * 0.3,
+                vy: -0.2 - Math.random() * 0.3,
+                life: 2 + Math.random() * 2,
+                color: 'rgba(148,163,184,0.15)',
+                size: 1 + Math.random() * 1.5,
+            });
+        }
         
         // Center battle effects
         if (this.phase === 'clash') {
