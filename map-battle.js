@@ -59,8 +59,8 @@ function generateArmyRoutes(fromPos, toPos, numRoutes, side) {
         // Add a slight forward/backward offset for variety
         const fwdOffset = (Math.random() - 0.5) * 0.1;
         
-        // Is this a naval route? (crosses lots of water -- heuristic: large lat or lng gap)
-        const isNaval = Math.abs(dLng) > 50 || (i === numRoutes - 1 && Math.abs(dLng) > 30);
+        // Is this a naval route? Only the last route if distance is very large
+        const isNaval = (i === numRoutes - 1) && Math.abs(dLng) > 60;
         
         routes.push({
             id: i,
@@ -165,12 +165,14 @@ class MapBattle {
         this.winChance = this.ratioL + (Math.random() - 0.5) * 0.12;
         this.winner = this.winChance > 0.5 ? 'left' : 'right';
         
-        // Total troops (in thousands for display)
-        this.troopsL = Math.round(Math.sqrt(L.pop || 100000) * (L.npi || 1) * 0.5);
-        this.troopsR = Math.round(Math.sqrt(R.pop || 100000) * (R.npi || 1) * 0.5);
-        // Cap troops for display sanity
-        this.troopsL = Math.min(this.troopsL, 5000);
-        this.troopsR = Math.min(this.troopsR, 5000);
+        // Total troops (in thousands for display) -- based on population and military strength
+        // Modern nations mobilize ~1-5% of pop, ancient ~2-10%
+        const mobilRate = this.year > 1900 ? 0.02 : (this.year > 1500 ? 0.03 : 0.05);
+        this.troopsL = Math.round((L.pop || 100000) * mobilRate / 1000); // in thousands
+        this.troopsR = Math.round((R.pop || 100000) * mobilRate / 1000);
+        // Minimum and maximum
+        this.troopsL = Math.max(10, Math.min(50000, this.troopsL));
+        this.troopsR = Math.max(10, Math.min(50000, this.troopsR));
         
         // Generate army routes (2-4 per side)
         const numRoutesL = dist > 50 ? 3 : (this.troopsL > 1000 ? 3 : 2);
@@ -230,7 +232,7 @@ class MapBattle {
     updateForceDisplay() {
         const el = document.getElementById('warLogForces');
         if (!el) return;
-        const fmtK = n => n >= 1000 ? (n/1000).toFixed(0) + 'K' : n.toString();
+        const fmtK = n => n >= 1000 ? (n/1000).toFixed(0) + 'M' : n + 'K';
         const remainL = this.routesL.reduce((s,r) => s + r.totalTroops - r.casualties, 0);
         const remainR = this.routesR.reduce((s,r) => s + r.totalTroops - r.casualties, 0);
         const barWidth = 200;
@@ -249,11 +251,13 @@ class MapBattle {
                 <div style="width:${redW}px;background:${MAP_BATTLE.COLORS.red.fill};transition:width 0.5s;"></div>
             </div>
             <div style="margin-top:8px;">
+                <div style="font-size:10px;color:#64748b;margin:6px 0 2px;letter-spacing:1px;">${this.shortNameL}</div>
                 ${this.routesL.map(r => `
                     <div style="font-size:10px;color:${r.destroyed?'#475569':MAP_BATTLE.COLORS.blue.fill};margin:2px 0;${r.destroyed?'text-decoration:line-through;':''}">
                         ${r.isNaval?'⚓':'→'} ${typeof currentLang !== 'undefined' && currentLang === 'zh' ? r.name_zh : r.name_en}: ${fmtK(r.totalTroops - r.casualties)}/${fmtK(r.totalTroops)}
                     </div>
                 `).join('')}
+                <div style="font-size:10px;color:#64748b;margin:6px 0 2px;letter-spacing:1px;">${this.shortNameR}</div>
                 ${this.routesR.map(r => `
                     <div style="font-size:10px;color:${r.destroyed?'#475569':MAP_BATTLE.COLORS.red.fill};margin:2px 0;${r.destroyed?'text-decoration:line-through;':''}">
                         ${r.isNaval?'⚓':'→'} ${typeof currentLang !== 'undefined' && currentLang === 'zh' ? r.name_zh : r.name_en}: ${fmtK(r.totalTroops - r.casualties)}/${fmtK(r.totalTroops)}
@@ -414,10 +418,10 @@ class MapBattle {
             }
         });
         
-        const fmtK = n => n >= 1000 ? (n/1000).toFixed(0) + 'K' : n.toString();
+        const fmtK2 = n => n >= 1000 ? (n/1000).toFixed(0) + 'M' : n + 'K';
         this.addLog(isZh
-            ? `总伤亡：${this.shortNameL} ${fmtK(totalCasL)} / ${this.shortNameR} ${fmtK(totalCasR)}`
-            : `Casualties: ${this.shortNameL} ${fmtK(totalCasL)} / ${this.shortNameR} ${fmtK(totalCasR)}`, '#94a3b8');
+            ? `总伤亡：${this.shortNameL} ${fmtK2(totalCasL)} / ${this.shortNameR} ${fmtK2(totalCasR)}`
+            : `Casualties: ${this.shortNameL} ${fmtK2(totalCasL)} / ${this.shortNameR} ${fmtK2(totalCasR)}`, '#94a3b8');
         
         this.updateForceDisplay();
     }
@@ -613,7 +617,7 @@ class MapBattle {
             if (cp.intensity <= 0) return;
             
             const px = this.latLngToPixel(cp.lat, cp.lng);
-            const size = 8 + cp.intensity * 2;
+            const size = 12 + cp.intensity * 3;
             
             // Pulsing glow
             const pulse = Math.sin(this.tick * 0.08) * 0.3 + 0.7;
