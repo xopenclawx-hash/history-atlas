@@ -41,8 +41,15 @@ function generateArmyRoutes(fromPos, toPos, numRoutes, side) {
     const perpLat = -dLng / len;
     const perpLng = dLat / len;
     
-    const names_en = ['Main Army', 'Northern Front', 'Southern Front', 'Naval Fleet', 'Reserve Corps'];
-    const names_zh = ['主力军团', '北路军', '南路军', '海军舰队', '预备军团'];
+    // Era-appropriate naming
+    const isAncient = typeof currentIndex !== 'undefined' && TIME_PERIODS && TIME_PERIODS[currentIndex] < 500;
+    const isMedieval = typeof currentIndex !== 'undefined' && TIME_PERIODS && TIME_PERIODS[currentIndex] >= 500 && TIME_PERIODS[currentIndex] < 1500;
+    const names_en = isAncient ? ['Main Host', 'Left Wing', 'Right Wing', 'War Fleet', 'Reserve'] :
+        isMedieval ? ['Vanguard', 'Northern Host', 'Southern Host', 'Fleet', 'Rear Guard'] :
+        ['Main Army', 'Northern Front', 'Southern Front', 'Naval Fleet', 'Reserve Corps'];
+    const names_zh = isAncient ? ['中军', '左翼', '右翼', '水师', '后军'] :
+        isMedieval ? ['前锋', '北路军', '南路军', '水师', '后军'] :
+        ['主力军团', '北路军', '南路军', '海军舰队', '预备军团'];
     
     // Distribute forces: main gets 40-50%, flanks get rest
     const forceDistribution = numRoutes === 2 ? [0.6, 0.4] :
@@ -507,21 +514,61 @@ class MapBattle {
                 const winName = winSide === 'left' ? this.shortNameL : this.shortNameR;
                 const loseName = winSide === 'left' ? this.shortNameR : this.shortNameL;
                 
-                const earlyEvents = [
+                const yr = this.year;
+                const isAncient = yr < 500;
+                const isMedieval = yr >= 500 && yr < 1500;
+                
+                const earlyEvents = isAncient ? [
+                    [`${winName} war chariots charge forward`, `${winName} 战车冲锋`],
+                    [`${loseName} archers rain arrows on advancing troops`, `${loseName} 弓箭手万箭齐发`],
+                    [`Infantry formations clash on the plains`, `步兵方阵在平原交锋`],
+                    [`${winName} cavalry scouts probe enemy flanks`, `${winName} 骑兵斥候试探敌翼`],
+                    [`War drums echo across the battlefield`, `战鼓声响彻战场`],
+                ] : isMedieval ? [
+                    [`${winName} knights lead the charge`, `${winName} 骑士率先冲锋`],
+                    [`${loseName} castle defenders hold firm`, `${loseName} 城堡守军坚守`],
+                    [`Siege engines batter the fortifications`, `攻城器械猛攻城防`],
+                    [`${winName} archers unleash a hail of arrows`, `${winName} 箭雨覆盖`],
+                    [`Cavalry clash on the open field`, `骑兵在旷野对决`],
+                ] : [
                     [`${winName} Main Army engages the front line`, `${winName} 主力军团与前线接战`],
                     [`${loseName} defensive positions under bombardment`, `${loseName} 防御阵地遭到轰炸`],
                     [`Fierce fighting along the entire front`, `全线激战`],
                     [`${winName} Northern Front advances rapidly`, `${winName} 北路军快速推进`],
                     [`Skirmishes along the border intensify`, `边境冲突加剧`],
                 ];
-                const midEvents = [
+                const midEvents = isAncient ? [
+                    [`${winName} elephants break through enemy lines`, `${winName} 战象突破敌阵`],
+                    [`${loseName} phalanx holds under pressure`, `${loseName} 方阵苦苦支撑`],
+                    [`Mercenaries switch sides mid-battle`, `雇佣军临阵倒戈`],
+                    [`${winName} general rallies the troops`, `${winName} 将领亲自督战`],
+                    [`River crossing contested fiercely`, `渡河之战异常激烈`],
+                ] : isMedieval ? [
+                    [`${winName} flanking cavalry breaks through`, `${winName} 侧翼骑兵突破`],
+                    [`${loseName} sends reinforcements from the reserve`, `${loseName} 调集后备军增援`],
+                    [`Supply wagons ambushed on the road`, `辎重车队遭伏击`],
+                    [`${winName} seizes the high ground`, `${winName} 占领高地`],
+                    [`Heavy losses on both sides`, `双方损失惨重`],
+                ] : [
                     [`${winName} Southern Front outflanks enemy positions`, `${winName} 南路军迂回敌军侧翼`],
                     [`${loseName} commits reserve forces to the battle`, `${loseName} 投入预备队`],
                     [`${loseName} supply lines under attack`, `${loseName} 补给线遭到袭击`],
                     [`${winName} achieves air superiority`, `${winName} 取得制空权`],
-                    [`Bitter house-to-house fighting reported`, `巷战激烈`],
+                    [`Bitter urban combat reported`, `城市巷战激烈`],
                 ];
-                const lateEvents = [
+                const lateEvents = isAncient ? [
+                    [`${loseName} army begins to rout`, `${loseName} 军队开始溃散`],
+                    [`${winName} cavalry pursues fleeing enemy`, `${winName} 骑兵追击败军`],
+                    [`${loseName} commander falls in battle`, `${loseName} 主帅阵亡`],
+                    [`The battlefield is strewn with the fallen`, `战场尸横遍野`],
+                    [`${loseName} retreats behind the river`, `${loseName} 退守河对岸`],
+                ] : isMedieval ? [
+                    [`${loseName} walls breached! Defenders overrun`, `${loseName} 城墙被攻破！守军溃散`],
+                    [`${winName} banner raised over the field`, `${winName} 旗帜插上阵地`],
+                    [`${loseName} knights cut down in retreat`, `${loseName} 骑士在撤退中被歼`],
+                    [`Prisoners taken in great numbers`, `大批俘虏被擒`],
+                    [`${loseName} surrenders the fortress`, `${loseName} 投降献城`],
+                ] : [
                     [`${loseName} front lines collapsing`, `${loseName} 前线全面崩溃`],
                     [`${winName} breaks through! Pursuit begins`, `${winName} 突破成功！全线追击`],
                     [`${loseName} orders general retreat`, `${loseName} 下令全面撤退`],
