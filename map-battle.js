@@ -423,6 +423,20 @@ class MapBattle {
             ? `总伤亡：${this.shortNameL} ${fmtK2(totalCasL)} / ${this.shortNameR} ${fmtK2(totalCasR)}`
             : `Casualties: ${this.shortNameL} ${fmtK2(totalCasL)} / ${this.shortNameR} ${fmtK2(totalCasR)}`, '#94a3b8');
         
+        // Summary box in war log
+        const destroyedCount = loseRoutes.filter(r => r.destroyed).length;
+        if (destroyedCount > 0) {
+            this.addLog(isZh
+                ? `${loseName} 共 ${destroyedCount} 路军被歼灭`
+                : `${loseName}: ${destroyedCount} army group(s) destroyed`, MAP_BATTLE.COLORS.red.fill);
+        }
+        
+        const winRemain = winRoutes.reduce((s,r) => s + r.totalTroops - r.casualties, 0);
+        const loseRemain = loseRoutes.reduce((s,r) => s + r.totalTroops - r.casualties, 0);
+        this.addLog(isZh
+            ? `${winName} 剩余 ${fmtK2(winRemain)} | ${loseName} 剩余 ${fmtK2(loseRemain)}`
+            : `Remaining: ${winName} ${fmtK2(winRemain)} | ${loseName} ${fmtK2(loseRemain)}`, '#64748b');
+        
         this.updateForceDisplay();
     }
     
@@ -503,10 +517,19 @@ class MapBattle {
             }
         }
         else if (this.phase === 'resolve') {
-            // Winner pushes forward, loser retreats
+            // Loser retreats (arrows shrink back), winner pushes forward
             const loseRoutes = this.winner === 'left' ? this.routesR : this.routesL;
+            const winRoutes = this.winner === 'left' ? this.routesL : this.routesR;
             loseRoutes.forEach(r => {
-                if (!r.destroyed) r.progress = Math.max(0, r.progress - progress * 0.3);
+                if (!r.destroyed) {
+                    r.progress = Math.max(0.1, r.progress - progress * 0.5);
+                } else {
+                    r.progress = Math.max(0, r.progress - progress * 0.8); // destroyed routes disappear faster
+                }
+            });
+            // Winner arrows extend slightly past battle point
+            winRoutes.forEach(r => {
+                r.progress = Math.min(1.15, r.progress + progress * 0.15);
             });
         }
     }
