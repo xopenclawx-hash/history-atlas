@@ -550,6 +550,9 @@ class MapBattle {
         
         // Top phase banner
         this._drawPhaseBanner();
+        
+        // Bottom phase timeline
+        this._drawPhaseTimeline();
     }
     
     _drawRouteGroup(routes, colors) {
@@ -726,42 +729,73 @@ class MapBattle {
     _drawOrigins() {
         const ctx = this.ctx;
         
-        const drawOrigin = (pos, colors, name) => {
+        const drawOrigin = (pos, colors, name, troopsK) => {
             const px = this.latLngToPixel(pos.lat, pos.lng);
             
-            // Subtle pulsing ring
-            const pulse = Math.sin(this.tick * 0.04) * 0.15 + 0.85;
-            ctx.globalAlpha = 0.15 * pulse;
-            ctx.strokeStyle = colors.fill;
-            ctx.lineWidth = 1.5;
+            // Outer pulsing ring (radar style)
+            const pulse = Math.sin(this.tick * 0.03) * 0.15 + 0.85;
+            ctx.globalAlpha = 0.08 * pulse;
+            ctx.fillStyle = colors.fill;
             ctx.beginPath();
-            ctx.arc(px.x, px.y, 18 * pulse, 0, Math.PI * 2);
+            ctx.arc(px.x, px.y, 28 * pulse, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Middle ring
+            ctx.globalAlpha = 0.12;
+            ctx.strokeStyle = colors.fill;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(px.x, px.y, 20, 0, Math.PI * 2);
             ctx.stroke();
             
-            // Inner dot
-            ctx.globalAlpha = 0.7;
-            ctx.fillStyle = colors.fill;
+            // Inner dot with glow
+            const igrd = ctx.createRadialGradient(px.x, px.y, 0, px.x, px.y, 8);
+            igrd.addColorStop(0, colors.head);
+            igrd.addColorStop(1, colors.fill + '00');
+            ctx.globalAlpha = 0.8;
+            ctx.fillStyle = igrd;
             ctx.beginPath();
-            ctx.arc(px.x, px.y, 4, 0, Math.PI * 2);
+            ctx.arc(px.x, px.y, 8, 0, Math.PI * 2);
             ctx.fill();
             
-            // Country name label
-            ctx.globalAlpha = 0.9;
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(px.x, px.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Country name + troop count badge
+            const fmtK = n => n >= 1000 ? (n / 1000).toFixed(0) + 'M' : n + 'K';
+            const label = `${name}  ${fmtK(troopsK)}`;
             ctx.font = '700 11px Inter,system-ui,sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillStyle = 'rgba(8,12,24,0.8)';
-            const tw = ctx.measureText(name).width + 12;
+            const tw = ctx.measureText(label).width + 16;
+            
+            // Badge background
+            ctx.globalAlpha = 0.9;
+            ctx.fillStyle = 'rgba(8,12,24,0.85)';
             ctx.beginPath();
-            ctx.roundRect(px.x - tw / 2, px.y + 10, tw, 18, 5);
+            ctx.roundRect(px.x - tw / 2, px.y + 14, tw, 20, 6);
             ctx.fill();
-            ctx.fillStyle = colors.fill;
+            ctx.strokeStyle = colors.fill + '33';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            
+            // Badge text
             ctx.textBaseline = 'middle';
-            ctx.fillText(name, px.x, px.y + 19);
+            ctx.fillStyle = colors.fill;
+            ctx.fillText(name, px.x - 12, px.y + 24);
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '600 9px Inter,system-ui,sans-serif';
+            const nameW = ctx.measureText(name).width;
+            ctx.fillText(fmtK(troopsK), px.x + nameW / 2 + 4, px.y + 24);
             ctx.globalAlpha = 1;
         };
         
-        drawOrigin(this.posL, MAP_BATTLE.COLORS.blue, this.shortNameL);
-        drawOrigin(this.posR, MAP_BATTLE.COLORS.red, this.shortNameR);
+        const remainL = this.routesL.reduce((s, r) => s + r.totalTroops - r.casualties, 0);
+        const remainR = this.routesR.reduce((s, r) => s + r.totalTroops - r.casualties, 0);
+        drawOrigin(this.posL, MAP_BATTLE.COLORS.blue, this.shortNameL, remainL);
+        drawOrigin(this.posR, MAP_BATTLE.COLORS.red, this.shortNameR, remainR);
     }
     
     _drawClashEffects() {
@@ -798,12 +832,21 @@ class MapBattle {
             ctx.arc(px.x, px.y, glowSize * 3, 0, Math.PI * 2);
             ctx.fill();
             
-            // Bright core
+            // Bright core with crosshair
             ctx.globalAlpha = cp.intensity * 0.8;
             ctx.fillStyle = '#fef3c7';
             ctx.beginPath();
-            ctx.arc(px.x, px.y, 2.5, 0, Math.PI * 2);
+            ctx.arc(px.x, px.y, 3, 0, Math.PI * 2);
             ctx.fill();
+            
+            // Thin crosshair lines
+            ctx.globalAlpha = cp.intensity * 0.2;
+            ctx.strokeStyle = MAP_BATTLE.COLORS.clash;
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(px.x - 20, px.y); ctx.lineTo(px.x + 20, px.y);
+            ctx.moveTo(px.x, px.y - 20); ctx.lineTo(px.x, px.y + 20);
+            ctx.stroke();
             
             ctx.globalAlpha = 1;
         });
@@ -858,6 +901,65 @@ class MapBattle {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(text, cx, 29);
+    }
+    
+    _drawPhaseTimeline() {
+        const ctx = this.ctx;
+        const phases = ['deploy', 'march', 'engage', 'resolve', 'aftermath'];
+        const phaseLabels = { deploy: 'DEPLOY', march: 'MARCH', engage: 'ENGAGE', resolve: 'RESOLVE', aftermath: 'AFTERMATH' };
+        const phaseColors = { deploy: '#64748b', march: '#38bdf8', engage: '#f59e0b', resolve: '#34d399', aftermath: '#94a3b8' };
+        
+        const totalMs = phases.reduce((s, p) => s + MAP_BATTLE.PHASE_MS[p], 0);
+        const barW = 300, barH = 4, barX = (this.w - barW) / 2, barY = this.h - 30;
+        
+        // Background
+        ctx.globalAlpha = 0.7;
+        ctx.fillStyle = 'rgba(8,12,24,0.8)';
+        ctx.beginPath();
+        ctx.roundRect(barX - 10, barY - 10, barW + 20, 28, 8);
+        ctx.fill();
+        
+        let x = barX;
+        const currentPhaseIdx = phases.indexOf(this.phase);
+        const elapsed = performance.now() - this.phaseStart;
+        
+        phases.forEach((p, i) => {
+            const w = (MAP_BATTLE.PHASE_MS[p] / totalMs) * barW;
+            
+            // Segment background
+            ctx.globalAlpha = 0.3;
+            ctx.fillStyle = phaseColors[p];
+            ctx.beginPath();
+            ctx.roundRect(x, barY, w - 1, barH, 2);
+            ctx.fill();
+            
+            // Fill if completed or current
+            if (i < currentPhaseIdx) {
+                ctx.globalAlpha = 0.8;
+                ctx.fillStyle = phaseColors[p];
+                ctx.beginPath();
+                ctx.roundRect(x, barY, w - 1, barH, 2);
+                ctx.fill();
+            } else if (i === currentPhaseIdx) {
+                const prog = Math.min(1, elapsed / MAP_BATTLE.PHASE_MS[p]);
+                ctx.globalAlpha = 0.8;
+                ctx.fillStyle = phaseColors[p];
+                ctx.beginPath();
+                ctx.roundRect(x, barY, (w - 1) * prog, barH, 2);
+                ctx.fill();
+            }
+            
+            // Label
+            ctx.globalAlpha = i <= currentPhaseIdx ? 0.9 : 0.3;
+            ctx.font = '600 7px Inter,system-ui,sans-serif';
+            ctx.fillStyle = i === currentPhaseIdx ? phaseColors[p] : '#94a3b8';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(phaseLabels[p], x + w / 2, barY + 7);
+            
+            x += w;
+        });
+        ctx.globalAlpha = 1;
     }
     
     finish() {
