@@ -71,36 +71,79 @@ class MapBattle {
         this.nameR = typeof getLocalName !== 'undefined' ? getLocalName(rightISO) : rightISO;
 
         // ===== COMBAT MODEL =====
+        // Era-adaptive formula:
+        //   CP = Pop^a × GDP^b × NPI^c × LogisticsBonus
+        //
+        // Ancient (<1500): Manpower matters most, economy funds armies
+        //   a=0.45  b=0.25  c=0.30
+        // Early Modern (1500-1900): Industrialization > manpower, tech gap widens
+        //   a=0.25  b=0.35  c=0.40
+        // Contemporary (>1900): Comprehensive national power dominates
+        //   a=0.15  b=0.30  c=0.55
+        //
+        // Pop is sqrt-normalized to prevent huge populations from steamrolling.
+        // GDP per capita gives a logistics bonus (rich nations sustain wars better).
+        // NPI already encodes military spending, GDP, R&D, and population.
+
         const L = data.left, R = data.right;
 
-        // National strength (NPI-based)
-        this.strengthL = (L.npi || 0.1);
-        this.strengthR = (R.npi || 0.1);
+        // Era weights
+        // Ancient: NPI (military org/tech) still crucial -- Mongols beat Song
+        //          Pop matters but with diminishing returns (sqrt already helps)
+        // Modern: NPI dominates (encodes military + economy + R&D)
+        let wPop, wGdp, wNpi;
+        if (year < 1500) {
+            wPop = 0.35; wGdp = 0.25; wNpi = 0.40;
+        } else if (year < 1900) {
+            wPop = 0.20; wGdp = 0.35; wNpi = 0.45;
+        } else {
+            wPop = 0.12; wGdp = 0.28; wNpi = 0.60;
+        }
 
-        // Mobilization coefficient (era-dependent)
+        // Raw inputs (with safe floors)
+        const popL = Math.max(L.pop || 1, 1);
+        const popR = Math.max(R.pop || 1, 1);
+        const gdpL = Math.max(L.gdp || 1, 1);
+        const gdpR = Math.max(R.gdp || 1, 1);
+        const npiL = Math.max(L.npi || 0.1, 0.1);
+        const npiR = Math.max(R.npi || 0.1, 0.1);
+
+        // Mobilization: population with diminishing returns × era-dependent rate
+        // Ancient armies mobilized ~4% of pop, modern ~1.5%
+        // Use cube root for ancient (huge empires couldn't mobilize proportionally)
+        // Use sqrt for modern (better logistics = more linear mobilization)
         const mobilRate = year > 1900 ? 0.015 : (year > 1500 ? 0.025 : 0.04);
-        const mobilL = Math.sqrt((L.pop || 100000) * mobilRate) / 1000; // normalized
-        const mobilR = Math.sqrt((R.pop || 100000) * mobilRate) / 1000;
+        const popExp = year < 1500 ? 1/3 : 1/2; // cube root for ancient, sqrt for modern
+        const mobilL = Math.pow(popL * mobilRate, popExp);
+        const mobilR = Math.pow(popR * mobilRate, popExp);
+
+        // Logistics bonus: GDP per capita, capped at 2x
+        // Rich nations have better supply chains, equipment, medical care
+        const gdppcL = gdpL / popL;
+        const gdppcR = gdpR / popR;
+        const maxGdppc = Math.max(gdppcL, gdppcR, 0.001);
+        const logisticsL = 0.5 + 0.5 * Math.min(2, gdppcL / maxGdppc + 0.5);
+        const logisticsR = 0.5 + 0.5 * Math.min(2, gdppcR / maxGdppc + 0.5);
+
+        // Combat Power = weighted geometric mean × logistics
+        // Using pow for each component so weights act as exponents
+        const rawCpL = Math.pow(mobilL, wPop) * Math.pow(gdpL, wGdp) * Math.pow(npiL, wNpi) * logisticsL;
+        const rawCpR = Math.pow(mobilR, wPop) * Math.pow(gdpR, wGdp) * Math.pow(npiR, wNpi) * logisticsR;
+
+        // Store raw values for display
+        this.strengthL = npiL;
+        this.strengthR = npiR;
 
         // Stability (starts at 100)
         this.stabilityL = 100;
         this.stabilityR = 100;
 
-        // Logistics coefficient (based on GDP/pop - richer = better logistics)
-        const gdppcL = (L.gdp || 1) / Math.max(1, L.pop || 1);
-        const gdppcR = (R.gdp || 1) / Math.max(1, R.pop || 1);
-        const logisticsL = Math.min(1.5, 0.5 + gdppcL * 100);
-        const logisticsR = Math.min(1.5, 0.5 + gdppcR * 100);
-
-        // Final combat power
-        // CP = Strength × Mobilization × (Stability/100) × Logistics
-        this.baseCpL = this.strengthL * mobilL * logisticsL;
-        this.baseCpR = this.strengthR * mobilR * logisticsR;
-
-        // Normalize to 100 scale
-        const maxCp = Math.max(this.baseCpL, this.baseCpR, 0.001);
-        this.cpL = (this.baseCpL / maxCp) * 100;
-        this.cpR = (this.baseCpR / maxCp) * 100;
+        // Normalize to 100 scale (stronger side = 100)
+        const maxCp = Math.max(rawCpL, rawCpR, 0.001);
+        this.baseCpL = rawCpL;
+        this.baseCpR = rawCpR;
+        this.cpL = (rawCpL / maxCp) * 100;
+        this.cpR = (rawCpR / maxCp) * 100;
 
         // Starting HP (= combat power, decays during battle)
         this.hpL = this.cpL;
