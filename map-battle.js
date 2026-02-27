@@ -1014,11 +1014,12 @@ function vsModalPickCountry(iso) {
     }
 }
 
-// Keep old name for compatibility with app.js
-let vsModalSelecting = false;
+// Compatibility: app.js checks window.vsModalSelecting
+// Use var (not let) so it becomes a window property we can override
 Object.defineProperty(window, 'vsModalSelecting', {
     get() { return vsSelecting; },
-    set(v) { vsSelecting = v; }
+    set(v) { vsSelecting = v; },
+    configurable: true
 });
 
 function closeVsModal() {
