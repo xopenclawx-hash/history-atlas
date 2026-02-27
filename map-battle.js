@@ -982,36 +982,34 @@ function showVsModal() {
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'vsModal';
-        modal.style.cssText = `position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1500;background:rgba(10,14,23,0.95);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:24px 28px;min-width:340px;font-family:Inter,system-ui,sans-serif;color:#e2e8f0;box-shadow:0 12px 48px rgba(0,0,0,0.6);`;
+        modal.style.cssText = `position:fixed;top:16px;right:16px;z-index:1500;background:rgba(10,14,23,0.92);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px 20px;width:300px;font-family:Inter,system-ui,sans-serif;color:#e2e8f0;box-shadow:0 8px 32px rgba(0,0,0,0.5);`;
         modal.innerHTML = `
-            <div style="text-align:center;margin-bottom:16px">
-                <div style="font-size:20px;font-weight:800;color:#f59e0b">VS</div>
-                <div class="vs-modal-year" id="vsModalYear">${typeof yearLabel !== 'undefined' ? yearLabel(TIME_PERIODS[currentIndex]) : ''}</div>
-                <div style="font-size:11px;color:#64748b;margin:4px 0">${isZh ? '在地图上点击选择国家，或搜索' : 'Click map to select, or search'}</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                <div><span style="font-size:16px;font-weight:800;color:#f59e0b">VS</span> <span class="vs-modal-year" id="vsModalYear" style="font-size:11px;color:#64748b;margin-left:4px">${typeof yearLabel !== 'undefined' ? yearLabel(TIME_PERIODS[currentIndex]) : ''}</span></div>
+                <button id="vsModalClose" style="font-size:10px;color:#64748b;background:none;border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:2px 10px;cursor:pointer">${isZh?'取消':'Cancel'}</button>
             </div>
-            <div style="display:flex;gap:16px;align-items:center">
-                <div style="flex:1;text-align:center">
-                    <div style="font-size:10px;color:${MAP_BATTLE_CFG.COLORS.blue.main};margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">${isZh?'左方':'LEFT'}</div>
-                    <div class="vs-modal-search-wrap" style="position:relative">
-                        <input id="vsSearchL" type="text" placeholder="${isZh?'搜索国家...':'Search...'}" style="width:100%;padding:6px 10px;background:rgba(255,255,255,0.05);border:1px solid rgba(79,143,247,0.3);border-radius:8px;color:#e2e8f0;font-size:12px;outline:none;">
-                        <div id="vsDropL" style="display:none;position:absolute;top:100%;left:0;right:0;background:rgba(10,14,23,0.95);border:1px solid rgba(255,255,255,0.08);border-radius:8px;max-height:160px;overflow-y:auto;z-index:10;margin-top:2px;"></div>
-                    </div>
-                    <div id="vsSelectedL" style="display:none;font-size:14px;font-weight:700;cursor:pointer;padding:6px;"></div>
+            <div style="font-size:10px;color:#475569;margin-bottom:8px">${isZh ? '点击地图或搜索选国家' : 'Click map or search to pick'}</div>
+            <!-- Left -->
+            <div style="margin-bottom:8px">
+                <div style="font-size:9px;color:${MAP_BATTLE_CFG.COLORS.blue.main};margin-bottom:3px;text-transform:uppercase;letter-spacing:1px">${isZh?'左方':'LEFT'}</div>
+                <div class="vs-modal-search-wrap" style="position:relative">
+                    <input id="vsSearchL" type="text" placeholder="${isZh?'搜索国家...':'Search...'}" style="width:100%;padding:5px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(79,143,247,0.3);border-radius:6px;color:#e2e8f0;font-size:12px;outline:none;box-sizing:border-box;">
+                    <div id="vsDropL" style="display:none;position:absolute;top:100%;left:0;right:0;background:rgba(10,14,23,0.95);border:1px solid rgba(255,255,255,0.08);border-radius:8px;max-height:140px;overflow-y:auto;z-index:10;margin-top:2px;"></div>
                 </div>
-                <div style="font-size:24px;font-weight:900;color:#f59e0b;flex-shrink:0">VS</div>
-                <div style="flex:1;text-align:center">
-                    <div style="font-size:10px;color:${MAP_BATTLE_CFG.COLORS.red.main};margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">${isZh?'右方':'RIGHT'}</div>
-                    <div class="vs-modal-search-wrap" style="position:relative">
-                        <input id="vsSearchR" type="text" placeholder="${isZh?'搜索国家...':'Search...'}" style="width:100%;padding:6px 10px;background:rgba(255,255,255,0.05);border:1px solid rgba(240,96,96,0.3);border-radius:8px;color:#e2e8f0;font-size:12px;outline:none;">
-                        <div id="vsDropR" style="display:none;position:absolute;top:100%;left:0;right:0;background:rgba(10,14,23,0.95);border:1px solid rgba(255,255,255,0.08);border-radius:8px;max-height:160px;overflow-y:auto;z-index:10;margin-top:2px;"></div>
-                    </div>
-                    <div id="vsSelectedR" style="display:none;font-size:14px;font-weight:700;cursor:pointer;padding:6px;"></div>
-                </div>
+                <div id="vsSelectedL" style="display:none;font-size:13px;font-weight:700;cursor:pointer;padding:4px 0;"></div>
             </div>
-            <div id="vsModalPreview" style="font-size:10px;color:#64748b;margin:8px 0;min-height:18px;text-align:center;"></div>
-            <div style="text-align:center;margin-top:8px">
-                <button class="vs-modal-go" id="vsModalGo" disabled style="padding:8px 32px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#0a0e17;font-weight:700;border:none;border-radius:8px;cursor:pointer;font-size:13px;opacity:0.4;transition:opacity 0.3s">${isZh?'开战':'START BATTLE'}</button>
-                <button id="vsModalClose" style="margin-left:8px;padding:8px 16px;background:none;color:#64748b;border:1px solid rgba(255,255,255,0.1);border-radius:8px;cursor:pointer;font-size:12px">${isZh?'取消':'Cancel'}</button>
+            <!-- Right -->
+            <div style="margin-bottom:8px">
+                <div style="font-size:9px;color:${MAP_BATTLE_CFG.COLORS.red.main};margin-bottom:3px;text-transform:uppercase;letter-spacing:1px">${isZh?'右方':'RIGHT'}</div>
+                <div class="vs-modal-search-wrap" style="position:relative">
+                    <input id="vsSearchR" type="text" placeholder="${isZh?'搜索国家...':'Search...'}" style="width:100%;padding:5px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(240,96,96,0.3);border-radius:6px;color:#e2e8f0;font-size:12px;outline:none;box-sizing:border-box;">
+                    <div id="vsDropR" style="display:none;position:absolute;top:100%;left:0;right:0;background:rgba(10,14,23,0.95);border:1px solid rgba(255,255,255,0.08);border-radius:8px;max-height:140px;overflow-y:auto;z-index:10;margin-top:2px;"></div>
+                </div>
+                <div id="vsSelectedR" style="display:none;font-size:13px;font-weight:700;cursor:pointer;padding:4px 0;"></div>
+            </div>
+            <div id="vsModalPreview" style="font-size:10px;color:#64748b;margin:6px 0;min-height:16px;text-align:center;"></div>
+            <div style="display:flex;gap:8px">
+                <button class="vs-modal-go" id="vsModalGo" disabled style="flex:1;padding:7px 0;background:linear-gradient(135deg,#f59e0b,#d97706);color:#0a0e17;font-weight:700;border:none;border-radius:8px;cursor:pointer;font-size:12px;opacity:0.4;transition:opacity 0.3s">${isZh?'开战':'START BATTLE'}</button>
             </div>
         `;
         document.body.appendChild(modal);
