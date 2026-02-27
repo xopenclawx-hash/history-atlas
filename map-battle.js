@@ -181,6 +181,8 @@ class MapBattle {
         this.strengthL = npiL; this.strengthR = npiR;
         this.stabilityL = 100; this.stabilityR = 100;
 
+        console.log('[MapBattle] rawCP:', rawCpL, rawCpR, 'pop:', popL, popR, 'gdp:', gdpL, gdpR, 'npi:', npiL, npiR);
+
         const maxCp = Math.max(rawCpL, rawCpR, 0.001);
         this.cpL = (rawCpL / maxCp) * 100;
         this.cpR = (rawCpR / maxCp) * 100;
@@ -887,6 +889,17 @@ class MapBattle {
         }
 
         // ===== FORCE BLOCKS =====
+        // Debug: draw centroids to verify render is working
+        ctx.save();
+        ctx.fillStyle = MAP_BATTLE_CFG.COLORS.blue.main;
+        ctx.beginPath(); ctx.arc(pxL.x, pxL.y, 8, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = MAP_BATTLE_CFG.COLORS.red.main;
+        ctx.beginPath(); ctx.arc(pxR.x, pxR.y, 8, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = '10px monospace'; ctx.textAlign = 'left';
+        ctx.fillText(`L:${this.blocksL.length} blk p=${Math.round(this.blocksL[0]?.power||0)} m=${this.blocksL[0]?.marchProgress?.toFixed(2)}`, 10, this.cH - 40);
+        ctx.fillText(`R:${this.blocksR.length} blk p=${Math.round(this.blocksR[0]?.power||0)} m=${this.blocksR[0]?.marchProgress?.toFixed(2)}`, 10, this.cH - 25);
+        ctx.restore();
+
         for (const block of [...this.blocksL, ...this.blocksR]) {
             this._renderForceBlock(ctx, block, pxL, pxR);
         }
@@ -906,7 +919,16 @@ class MapBattle {
         const isLeft = block.side === 'left';
         const col = isLeft ? MAP_BATTLE_CFG.COLORS.blue : MAP_BATTLE_CFG.COLORS.red;
         const origin = isLeft ? pxL : pxR;
-        const borderPt = map.latLngToContainerPoint(L.latLng(block.borderLat, block.borderLng));
+        let borderPt;
+        try {
+            borderPt = map.latLngToContainerPoint(L.latLng(block.borderLat, block.borderLng));
+        } catch(e) {
+            borderPt = { x: this.cW/2, y: this.cH/2 };
+        }
+        // Debug: always draw something even if data is bad
+        if (isNaN(block.power) || block.power === 0) {
+            block.power = block.maxPower = 50;
+        }
 
         // [R3] Position calculation
         let x, y;
