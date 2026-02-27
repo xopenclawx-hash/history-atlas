@@ -1,15 +1,17 @@
-// ===== BATTLE SIMULATION v5 =====
-// Full-screen arena with animated center combat
-// R31-50: Animated unit fighters, screen shake, damage numbers, dramatic transitions
+// ===== MAP-EMBEDDED BATTLE SYSTEM v6 =====
+// Battles happen directly on the map with particle streams, territory highlighting, and floating HUD
 
 const MAP_BATTLE_CFG = {
-    PHASE_MS: { intro: 3000, clash: 10000, resolve: 4000, victory: 6000 },
+    PHASE_MS: { setup: 1500, battle: 8000, victory: 3500 },
     COLORS: {
-        blue: { main: '#4f8ff7', dark: '#1e40af', light: '#93bbff', bg: 'rgba(79,143,247,0.08)' },
-        red: { main: '#f06060', dark: '#991b1b', light: '#ffa0a0', bg: 'rgba(240,96,96,0.08)' },
+        blue: { main: '#4f8ff7', dark: '#1e40af', light: '#93bbff', glow: 'rgba(79,143,247,0.5)' },
+        red: { main: '#f06060', dark: '#991b1b', light: '#ffa0a0', glow: 'rgba(240,96,96,0.5)' },
         gold: '#f59e0b',
         victory: '#34d399',
-    }
+    },
+    PARTICLE_COUNT: 40,
+    PARTICLE_SPAWN_RATE: 3, // per frame
+    COLLISION_ZONE: 35,
 };
 
 function getCountryCentroid(iso) {
@@ -26,26 +28,23 @@ function getCountryCentroid(iso) {
     return found;
 }
 
-class BattleArena {
+// ===== MAP BATTLE CLASS =====
+class MapBattle {
     constructor(leftISO, rightISO, year, data) {
         this.leftISO = leftISO;
         this.rightISO = rightISO;
         this.year = year;
         this.data = data;
-        this.phase = 'intro';
-        this.tick = 0;
+        this.phase = 'setup';
+        this.elapsed = 0;
         this.running = false;
-        this.battleLog = [];
-        this.particles = [];
-        
+        this.onComplete = null;
+
         const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
         this.isZh = isZh;
-        
         this.nameL = typeof getLocalName !== 'undefined' ? getLocalName(leftISO) : leftISO;
         this.nameR = typeof getLocalName !== 'undefined' ? getLocalName(rightISO) : rightISO;
-        this.shortL = this._shorten(this.nameL);
-        this.shortR = this._shorten(this.nameR);
-        
+
         // Force calculation
         const L = data.left, R = data.right;
         this.forceL = (L.npi || 0.1) * 60 + (L.gdp || 0) * 0.001 + Math.sqrt(L.pop || 0) * 0.0001;
@@ -54,905 +53,700 @@ class BattleArena {
         this.ratioL = this.forceL / total;
         this.ratioR = this.forceR / total;
         this.winner = (this.ratioL + (Math.random() - 0.5) * 0.12) > 0.5 ? 'left' : 'right';
-        
+
         // Troops
         const mobilRate = year > 1900 ? 0.02 : (year > 1500 ? 0.03 : 0.05);
-        this.troopsL = Math.max(10, Math.min(50000, Math.round((L.pop || 100000) * mobilRate / 1000)));
-        this.troopsR = Math.max(10, Math.min(50000, Math.round((R.pop || 100000) * mobilRate / 1000)));
-        
+        this.troopsL = Math.max(5000, Math.round((L.pop || 100000) * mobilRate));
+        this.troopsR = Math.max(5000, Math.round((R.pop || 100000) * mobilRate));
+
         // Army groups
         this.armiesL = this._createArmies('left');
         this.armiesR = this._createArmies('right');
-        
+
         this.hpL = 100;
         this.hpR = 100;
-        this.momentum = 0;
-        this.shakeX = 0;
-        this.shakeY = 0;
-        this.dmgNumbers = []; // floating damage numbers
-        
-        // Create battle units for center animation
-        this.units = [];
-        const unitCountL = Math.min(12, Math.max(4, Math.round(this.troopsL / 1500)));
-        const unitCountR = Math.min(12, Math.max(4, Math.round(this.troopsR / 1500)));
-        for (let i = 0; i < unitCountL; i++) {
-            this.units.push({
-                side: 'left', x: 0, y: 0, targetX: 0, targetY: 0,
-                hp: 100, alive: true, attacking: false, attackTimer: 0,
-                size: 14 + Math.random() * 6, speed: 0.5 + Math.random() * 0.5,
-                row: i % 4, col: Math.floor(i / 4),
-            });
-        }
-        for (let i = 0; i < unitCountR; i++) {
-            this.units.push({
-                side: 'right', x: 0, y: 0, targetX: 0, targetY: 0,
-                hp: 100, alive: true, attacking: false, attackTimer: 0,
-                size: 14 + Math.random() * 6, speed: 0.5 + Math.random() * 0.5,
-                row: i % 4, col: Math.floor(i / 4),
-            });
-        }
-        
-        this.createUI();
+
+        // Centroids
+        this.centroidL = getCountryCentroid(leftISO);
+        this.centroidR = getCountryCentroid(rightISO);
+
+        // Particles
+        this.particles = [];
+        this.sparks = [];
+        this.damageNums = [];
+        this.battleLog = [];
+
+        // Frontline shift: 0.5 = center, <0.5 = blue winning, >0.5 = red winning
+        this.frontline = 0.5;
+
+        // Saved layer styles for restore
+        this.savedStyles = new Map();
+
+        // DOM
+        this.canvas = null;
+        this.ctx = null;
+        this.hud = null;
+        this.victoryBanner = null;
+
+        this.lastTime = 0;
+        this.animFrame = null;
     }
-    
-    _shorten(name) {
-        return name.replace('United States of America', 'USA')
-            .replace('United Kingdom', 'UK')
-            .replace('Democratic Republic of the Congo', 'DR Congo')
-            .replace('Russian Federation', 'Russia');
-    }
-    
+
     _createArmies(side) {
         const yr = this.year;
         const isAnc = yr < 500, isMed = yr >= 500 && yr < 1500;
         const troops = side === 'left' ? this.troopsL : this.troopsR;
-        
         const types = isAnc ? [
-            { name: 'Infantry', zh: '步兵', icon: '\u2694', ratio: 0.5 },
-            { name: 'Cavalry', zh: '骑兵', icon: '\u265E', ratio: 0.25 },
-            { name: 'Archers', zh: '弓箭手', icon: '\u27B3', ratio: 0.25 },
+            { name: 'Infantry', zh: '步兵', ratio: 0.5 },
+            { name: 'Cavalry', zh: '骑兵', ratio: 0.25 },
+            { name: 'Archers', zh: '弓箭手', ratio: 0.25 },
         ] : isMed ? [
-            { name: 'Men-at-Arms', zh: '重装步兵', icon: '\u2694', ratio: 0.35 },
-            { name: 'Knights', zh: '骑士', icon: '\u265E', ratio: 0.3 },
-            { name: 'Archers', zh: '弓箭手', icon: '\u27B3', ratio: 0.2 },
-            { name: 'Siege', zh: '攻城器', icon: '\u2693', ratio: 0.15 },
+            { name: 'Men-at-Arms', zh: '重装步兵', ratio: 0.35 },
+            { name: 'Knights', zh: '骑士', ratio: 0.3 },
+            { name: 'Archers', zh: '弓箭手', ratio: 0.2 },
+            { name: 'Siege', zh: '攻城器', ratio: 0.15 },
         ] : [
-            { name: 'Ground Forces', zh: '陆军', icon: '\u2694', ratio: 0.35 },
-            { name: 'Armored', zh: '装甲部队', icon: '\u265F', ratio: 0.25 },
-            { name: 'Air Force', zh: '空军', icon: '\u2708', ratio: 0.25 },
-            { name: 'Navy', zh: '海军', icon: '\u2693', ratio: 0.15 },
+            { name: 'Ground', zh: '陆军', ratio: 0.35 },
+            { name: 'Armored', zh: '装甲', ratio: 0.25 },
+            { name: 'Air Force', zh: '空军', ratio: 0.25 },
+            { name: 'Navy', zh: '海军', ratio: 0.15 },
         ];
-        
         return types.map(t => ({
             ...t,
             troops: Math.round(troops * t.ratio),
-            hp: 100,
             casualties: 0,
-            destroyed: false,
         }));
     }
-    
-    createUI() {
-        // Full-screen overlay
-        let overlay = document.getElementById('battleOverlay');
-        if (overlay) overlay.remove();
-        
-        overlay = document.createElement('div');
-        overlay.id = 'battleOverlay';
-        overlay.style.cssText = `
-            position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:2000;
-            background:rgba(5,8,18,0.98);
-            font-family:Inter,system-ui,-apple-system,sans-serif;
-            color:#e2e8f0; overflow:hidden;
-            opacity:0; transition:opacity 0.8s ease;
-        `;
-        
-        overlay.innerHTML = this._buildHTML();
-        document.body.appendChild(overlay);
-        
-        // Canvas for effects
-        this.canvas = document.createElement('canvas');
-        this.canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;';
-        overlay.appendChild(this.canvas);
-        this.ctx = this.canvas.getContext('2d');
-        
-        // Fade in
-        requestAnimationFrame(() => { overlay.style.opacity = '1'; });
-        
-        this._resizeCanvas();
-        this._resizeHandler = () => this._resizeCanvas();
-        window.addEventListener('resize', this._resizeHandler);
-    }
-    
-    _resizeCanvas() {
-        const dpr = window.devicePixelRatio || 1;
-        this.canvas.width = window.innerWidth * dpr;
-        this.canvas.height = window.innerHeight * dpr;
-        this.ctx.scale(dpr, dpr);
-        this.w = window.innerWidth;
-        this.h = window.innerHeight;
-    }
-    
-    _buildHTML() {
-        const iz = this.isZh;
-        const fmtPop = n => {
-            if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-            if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-            if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
-            return n;
-        };
-        const fmtK = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'M' : n + 'K';
-        const fmtGDP = n => {
-            if (n >= 1e12) return '$' + (n / 1e12).toFixed(1) + 'T';
-            if (n >= 1e9) return '$' + (n / 1e9).toFixed(0) + 'B';
-            return '$' + (n / 1e6).toFixed(0) + 'M';
-        };
-        const L = this.data.left, R = this.data.right;
-        
-        return `
-        <style>
-            #battleOverlay * { box-sizing:border-box; margin:0; padding:0; }
-            .battle-side { position:absolute; top:0; height:100%; width:38%; display:flex; flex-direction:column; justify-content:center; padding:40px; }
-            .battle-left { left:0; align-items:flex-start; }
-            .battle-right { right:0; align-items:flex-end; text-align:right; }
-            .battle-country-name { font-size:clamp(28px,4vw,48px); font-weight:800; letter-spacing:2px; line-height:1.1; }
-            .battle-year-badge { font-size:11px; letter-spacing:3px; color:#64748b; margin-bottom:8px; }
-            .battle-stat { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:12px; color:#94a3b8; }
-            .battle-stat-value { font-weight:700; font-size:14px; }
-            .battle-army { display:flex; align-items:center; gap:6px; margin:3px 0; font-size:11px; padding:5px 10px; border-radius:6px; transition:all 0.5s; }
-            .battle-army.destroyed { opacity:0.3; text-decoration:line-through; }
-            .battle-hp-bar { height:5px; border-radius:2.5px; transition:width 0.5s ease, background 0.5s ease; }
-            .battle-center { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; z-index:5; pointer-events:none; }
-            .battle-vs { font-size:clamp(60px,10vw,120px); font-weight:900; opacity:0.04; letter-spacing:12px; color:#fff; }
-            .battle-phase { font-size:12px; letter-spacing:3px; margin-top:10px; }
-            .battle-log { position:absolute; bottom:50px; left:50%; transform:translateX(-50%); width:460px; max-height:130px; overflow-y:auto; z-index:20; background:rgba(5,8,18,0.6); backdrop-filter:blur(8px); border-radius:10px; padding:10px 14px; border:1px solid rgba(255,255,255,0.03); }
-            .battle-log-entry { font-size:11px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); line-height:1.5; }
-            .battle-force-bar { position:absolute; top:20px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:14px; z-index:20; background:rgba(5,8,18,0.7); backdrop-filter:blur(8px); padding:10px 20px; border-radius:20px; border:1px solid rgba(255,255,255,0.04); }
-            .battle-force-track { width:320px; height:8px; border-radius:4px; overflow:hidden; display:flex; background:rgba(255,255,255,0.03); gap:2px; }
-            .battle-force-fill-l { background:linear-gradient(90deg,${MAP_BATTLE_CFG.COLORS.blue.dark},${MAP_BATTLE_CFG.COLORS.blue.main}); transition:flex 0.8s ease; border-radius:4px 0 0 4px; }
-            .battle-force-fill-r { background:linear-gradient(90deg,${MAP_BATTLE_CFG.COLORS.red.main},${MAP_BATTLE_CFG.COLORS.red.dark}); transition:flex 0.8s ease; border-radius:0 4px 4px 0; }
-            .battle-btn { position:absolute; z-index:30; background:rgba(30,40,70,0.9); backdrop-filter:blur(12px); color:#e2e8f0; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px 24px; font-size:11px; font-weight:600; letter-spacing:2px; cursor:pointer; font-family:Inter,system-ui,sans-serif; display:none; transition:all 0.3s; }
-            .battle-btn:hover { background:rgba(40,55,90,0.95); }
-            #bAgainBtn { bottom:24px; right:50%; transform:translateX(calc(50% + 60px)); }
-            #bCloseBtn { bottom:24px; left:50%; transform:translateX(calc(-50% - 60px)); display:block !important; opacity:0.5; }
-            #bCloseBtn:hover { opacity:1; }
-            .battle-divider { width:1px; height:60vh; position:absolute; top:20vh; left:50%; background:linear-gradient(180deg,transparent,rgba(255,255,255,0.04),transparent); }
-            .battle-bg-pattern { position:absolute;top:0;left:0;width:100%;height:100%;opacity:0.015;background:repeating-linear-gradient(45deg,transparent,transparent 40px,rgba(255,255,255,0.5) 40px,rgba(255,255,255,0.5) 41px);pointer-events:none; }
-            @keyframes slideInLeft { from { transform:translateX(-60px); opacity:0; } to { transform:translateX(0); opacity:1; } }
-            @keyframes slideInRight { from { transform:translateX(60px); opacity:0; } to { transform:translateX(0); opacity:1; } }
-            @keyframes destroyFlash { 0% { background:rgba(239,68,68,0.3); } 100% { background:transparent; } }
-            @keyframes victoryPulse { 0%,100% { opacity:1; } 50% { opacity:0.7; } }
-            .battle-left { animation:slideInLeft 1s ease 0.3s both; }
-            .battle-right { animation:slideInRight 1s ease 0.3s both; }
-        </style>
-        
-        <div class="battle-bg-pattern"></div>
-        
-        <!-- Force bar at top -->
-        <div class="battle-force-bar">
-            <span style="color:${MAP_BATTLE_CFG.COLORS.blue.main};font-size:11px;font-weight:700;" id="bForceL">${fmtK(this.troopsL)}</span>
-            <div class="battle-force-track">
-                <div class="battle-force-fill-l" id="bBarL" style="flex:${Math.round(this.ratioL * 100)}"></div>
-                <div style="width:2px;background:rgba(255,255,255,0.1);flex-shrink:0;"></div>
-                <div class="battle-force-fill-r" id="bBarR" style="flex:${Math.round(this.ratioR * 100)}"></div>
-            </div>
-            <span style="color:${MAP_BATTLE_CFG.COLORS.red.main};font-size:11px;font-weight:700;" id="bForceR">${fmtK(this.troopsR)}</span>
-        </div>
-        
-        <!-- Left side -->
-        <div class="battle-side battle-left">
-            <div class="battle-year-badge">${yearLabel(this.year)}</div>
-            <div class="battle-country-name" style="color:${MAP_BATTLE_CFG.COLORS.blue.main}">${this.shortL}</div>
-            <div style="margin:16px 0 12px;display:flex;flex-direction:column;gap:4px;">
-                <div class="battle-stat"><span style="color:#64748b;">${iz ? '人口' : 'Pop'}:</span> <span class="battle-stat-value">${fmtPop(L.pop)}</span></div>
-                <div class="battle-stat"><span style="color:#64748b;">GDP:</span> <span class="battle-stat-value">${fmtGDP(L.gdp)}</span></div>
-                <div class="battle-stat"><span style="color:#64748b;">${iz ? '综合国力' : 'Strength'}:</span> <span class="battle-stat-value">${L.npi.toFixed(1)}%</span></div>
-            </div>
-            <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.04);padding-top:12px;font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:6px;">${iz ? '军事力量' : 'MILITARY FORCES'}</div>
-            <div id="bArmiesL">
-                ${this.armiesL.map((a, i) => `
-                    <div class="battle-army" id="bArmyL${i}" style="background:${MAP_BATTLE_CFG.COLORS.blue.bg};">
-                        <span style="font-size:14px;width:20px;text-align:center;">${a.icon}</span>
-                        <span style="flex:1;color:${MAP_BATTLE_CFG.COLORS.blue.light};font-weight:600;">${iz ? a.zh : a.name}</span>
-                        <span style="color:#94a3b8;font-size:10px;" id="bArmyLT${i}">${fmtK(a.troops)}</span>
-                        <div style="width:50px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;">
-                            <div class="battle-hp-bar" id="bArmyLH${i}" style="width:100%;background:${MAP_BATTLE_CFG.COLORS.blue.main};"></div>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-        
-        <!-- Right side -->
-        <div class="battle-side battle-right">
-            <div class="battle-year-badge">${yearLabel(this.year)}</div>
-            <div class="battle-country-name" style="color:${MAP_BATTLE_CFG.COLORS.red.main}">${this.shortR}</div>
-            <div style="margin:16px 0 12px;display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-                <div class="battle-stat"><span style="color:#64748b;">${iz ? '人口' : 'Pop'}:</span> <span class="battle-stat-value">${fmtPop(R.pop)}</span></div>
-                <div class="battle-stat"><span style="color:#64748b;">GDP:</span> <span class="battle-stat-value">${fmtGDP(R.gdp)}</span></div>
-                <div class="battle-stat"><span style="color:#64748b;">${iz ? '综合国力' : 'Strength'}:</span> <span class="battle-stat-value">${R.npi.toFixed(1)}%</span></div>
-            </div>
-            <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.04);padding-top:12px;font-size:9px;color:#475569;letter-spacing:2px;margin-bottom:6px;">${iz ? '军事力量' : 'MILITARY FORCES'}</div>
-            <div id="bArmiesR">
-                ${this.armiesR.map((a, i) => `
-                    <div class="battle-army" id="bArmyR${i}" style="background:${MAP_BATTLE_CFG.COLORS.red.bg};justify-content:flex-end;">
-                        <div style="width:50px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;">
-                            <div class="battle-hp-bar" id="bArmyRH${i}" style="width:100%;background:${MAP_BATTLE_CFG.COLORS.red.main};margin-left:auto;"></div>
-                        </div>
-                        <span style="color:#94a3b8;font-size:10px;" id="bArmyRT${i}">${fmtK(a.troops)}</span>
-                        <span style="flex:1;color:${MAP_BATTLE_CFG.COLORS.red.light};font-weight:600;text-align:right;">${iz ? a.zh : a.name}</span>
-                        <span style="font-size:14px;width:20px;text-align:center;">${a.icon}</span>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-        
-        <!-- Center -->
-        <div class="battle-divider"></div>
-        <div class="battle-center">
-            <div class="battle-vs">VS</div>
-            <div class="battle-phase" id="bPhase" style="color:${MAP_BATTLE_CFG.COLORS.gold};">${iz ? '准备中...' : 'PREPARING...'}</div>
-        </div>
-        
-        <!-- Battle log -->
-        <div class="battle-log" id="bLog"></div>
-        
-        <!-- Buttons -->
-        <button class="battle-btn" id="bAgainBtn">${iz ? '再战一场' : 'BATTLE AGAIN'}</button>
-        <button class="battle-btn" id="bCloseBtn" style="right:auto;left:20px;display:block;">${iz ? '返回地图' : 'BACK TO MAP'}</button>
-        `;
-    }
-    
+
     start(onComplete) {
         this.onComplete = onComplete;
         this.running = true;
-        this.phaseStart = performance.now();
-        
-        document.getElementById('bCloseBtn').addEventListener('click', () => this.cleanup());
-        document.getElementById('bAgainBtn').addEventListener('click', () => {
-            this.cleanup();
-            showVsModal();
-        });
-        
-        this._addLog(this.isZh ? `${this.shortL} 与 ${this.shortR} 开战！` : `War declared: ${this.shortL} vs ${this.shortR}`, '#fff');
-        
-        this.animate();
+        this._setupMap();
+        this._createCanvas();
+        this._createHUD();
+        this.lastTime = performance.now();
+        this.animFrame = requestAnimationFrame(t => this._tick(t));
     }
-    
-    animate() {
+
+    stop() {
+        this.running = false;
+        if (this.animFrame) cancelAnimationFrame(this.animFrame);
+        this._cleanup();
+    }
+
+    _setupMap() {
+        if (!this.centroidL || !this.centroidR) return;
+        // Fly to fit both countries
+        const bounds = L.latLngBounds([this.centroidL, this.centroidR]);
+        map.flyToBounds(bounds, { padding: [80, 80], duration: 1.2, maxZoom: 5 });
+
+        // Highlight countries
+        const colL = MAP_BATTLE_CFG.COLORS.blue;
+        const colR = MAP_BATTLE_CFG.COLORS.red;
+        geoLayer.eachLayer(layer => {
+            const props = layer.feature.properties;
+            let iso = props.ISO_A3;
+            if (iso === '-99' && typeof ISO_FIXES !== 'undefined')
+                iso = ISO_FIXES[props.NAME] || iso;
+
+            // Save original style
+            this.savedStyles.set(layer, {
+                fillColor: layer.options.fillColor,
+                fillOpacity: layer.options.fillOpacity,
+                color: layer.options.color,
+                weight: layer.options.weight,
+            });
+
+            if (iso === this.leftISO) {
+                layer.setStyle({
+                    fillColor: colL.main, fillOpacity: 0.45,
+                    color: colL.light, weight: 2.5,
+                });
+                layer.bringToFront();
+            } else if (iso === this.rightISO) {
+                layer.setStyle({
+                    fillColor: colR.main, fillOpacity: 0.45,
+                    color: colR.light, weight: 2.5,
+                });
+                layer.bringToFront();
+            } else {
+                layer.setStyle({ fillOpacity: 0.06, color: 'rgba(255,255,255,0.03)', weight: 0.5 });
+            }
+        });
+    }
+
+    _createCanvas() {
+        const container = map.getContainer();
+        this.canvas = document.createElement('canvas');
+        this.canvas.id = 'battleCanvas';
+        this.canvas.style.cssText = `
+            position:absolute; top:0; left:0; width:100%; height:100%;
+            z-index:650; pointer-events:none;
+        `;
+        this.canvas.width = container.offsetWidth * (window.devicePixelRatio || 1);
+        this.canvas.height = container.offsetHeight * (window.devicePixelRatio || 1);
+        this.canvas.style.width = container.offsetWidth + 'px';
+        this.canvas.style.height = container.offsetHeight + 'px';
+        container.appendChild(this.canvas);
+        this.ctx = this.canvas.getContext('2d');
+        this.ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+    }
+
+    _createHUD() {
+        let hud = document.getElementById('battleHUD');
+        if (hud) hud.remove();
+        hud = document.createElement('div');
+        hud.id = 'battleHUD';
+        hud.style.cssText = `
+            position:absolute; top:16px; left:50%; transform:translateX(-50%);
+            z-index:700; pointer-events:auto;
+            background:rgba(10,14,23,0.88); backdrop-filter:blur(20px);
+            border:1px solid rgba(255,255,255,0.08); border-radius:16px;
+            padding:16px 28px; min-width:420px;
+            font-family:Inter,system-ui,sans-serif; color:#e2e8f0;
+            box-shadow:0 8px 32px rgba(0,0,0,0.5);
+            opacity:0; transition:opacity 0.6s ease;
+        `;
+        hud.innerHTML = this._buildHUD();
+        map.getContainer().appendChild(hud);
+        this.hud = hud;
+        requestAnimationFrame(() => hud.style.opacity = '1');
+
+        // Close button
+        hud.querySelector('#battleClose').addEventListener('click', () => this.stop());
+    }
+
+    _buildHUD() {
+        const fmtPop = typeof formatPopShort !== 'undefined' ? formatPopShort : n => (n / 1000).toFixed(0) + 'K';
+        const L = this.data.left, R = this.data.right;
+        const yearStr = typeof yearLabel !== 'undefined' ? yearLabel(this.year) : this.year;
+
+        return `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:24px">
+                <div style="text-align:center;flex:1">
+                    <div style="font-size:18px;font-weight:700;color:${MAP_BATTLE_CFG.COLORS.blue.main}">${this.nameL}</div>
+                    <div style="font-size:11px;color:#64748b;margin-top:2px">${fmtPop(L.pop)} · ${(L.npi || 0).toFixed(1)}%</div>
+                    <div style="margin-top:6px;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden">
+                        <div id="hpBarL" style="height:100%;width:100%;background:linear-gradient(90deg,${MAP_BATTLE_CFG.COLORS.blue.dark},${MAP_BATTLE_CFG.COLORS.blue.main});border-radius:3px;transition:width 0.3s ease"></div>
+                    </div>
+                    <div id="armyL" style="font-size:10px;color:#94a3b8;margin-top:4px">
+                        ${this.armiesL.map(a => `${this.isZh ? a.zh : a.name}`).join(' · ')}
+                    </div>
+                </div>
+                <div style="text-align:center;flex-shrink:0">
+                    <div style="font-size:12px;color:#475569">${yearStr}</div>
+                    <div style="font-size:28px;font-weight:900;color:#f59e0b;line-height:1">VS</div>
+                    <button id="battleClose" style="margin-top:4px;font-size:10px;color:#64748b;background:none;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:2px 10px;cursor:pointer">
+                        ${this.isZh ? '退出' : 'EXIT'}
+                    </button>
+                </div>
+                <div style="text-align:center;flex:1">
+                    <div style="font-size:18px;font-weight:700;color:${MAP_BATTLE_CFG.COLORS.red.main}">${this.nameR}</div>
+                    <div style="font-size:11px;color:#64748b;margin-top:2px">${fmtPop(R.pop)} · ${(R.npi || 0).toFixed(1)}%</div>
+                    <div style="margin-top:6px;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden">
+                        <div id="hpBarR" style="height:100%;width:100%;background:linear-gradient(90deg,${MAP_BATTLE_CFG.COLORS.red.main},${MAP_BATTLE_CFG.COLORS.red.dark});border-radius:3px;transition:width 0.3s ease"></div>
+                    </div>
+                    <div id="armyR" style="font-size:10px;color:#94a3b8;margin-top:4px">
+                        ${this.armiesR.map(a => `${this.isZh ? a.zh : a.name}`).join(' · ')}
+                    </div>
+                </div>
+            </div>
+            <div id="battleLogBox" style="margin-top:10px;max-height:48px;overflow:hidden;font-size:11px;color:#94a3b8;text-align:center;line-height:1.6">
+            </div>
+        `;
+    }
+
+    _tick(now) {
         if (!this.running) return;
-        const now = performance.now();
-        const elapsed = now - this.phaseStart;
-        const phaseDuration = MAP_BATTLE_CFG.PHASE_MS[this.phase];
-        const progress = Math.min(1, elapsed / phaseDuration);
-        
-        this.tick++;
-        this._update(progress);
-        this._draw();
-        
-        if (progress >= 1) {
-            if (this.phase === 'intro') {
-                this.phase = 'clash';
-                this.phaseStart = now;
-                this._addLog(this.isZh ? '战斗开始！' : 'Battle begins!', MAP_BATTLE_CFG.COLORS.gold);
-            } else if (this.phase === 'clash') {
-                this.phase = 'resolve';
-                this.phaseStart = now;
-                this._resolveOutcome();
-            } else if (this.phase === 'resolve') {
+        const dt = Math.min(now - this.lastTime, 50); // cap at 50ms
+        this.lastTime = now;
+        this.elapsed += dt;
+
+        const cfg = MAP_BATTLE_CFG.PHASE_MS;
+
+        if (this.phase === 'setup') {
+            if (this.elapsed >= cfg.setup) {
+                this.phase = 'battle';
+                this.elapsed = 0;
+                this._addLog(this.isZh ? '战斗开始！' : 'Battle begins!');
+            }
+        } else if (this.phase === 'battle') {
+            this._updateBattle(dt);
+            if (this.elapsed >= cfg.battle) {
                 this.phase = 'victory';
-                this.phaseStart = now;
+                this.elapsed = 0;
                 this._showVictory();
-            } else if (this.phase === 'victory') {
+            }
+        } else if (this.phase === 'victory') {
+            this._updateVictory(dt);
+            if (this.elapsed >= cfg.victory) {
                 this.running = false;
+                setTimeout(() => this._cleanup(), 500);
+                if (this.onComplete) this.onComplete(this.winner, this.ratioL, this.ratioR);
                 return;
             }
         }
-        
-        this.animId = requestAnimationFrame(() => this.animate());
+
+        this._render();
+        this.animFrame = requestAnimationFrame(t => this._tick(t));
     }
-    
-    _update(progress) {
-        // Particle physics
-        this.particles = this.particles.filter(p => {
-            p.life -= 0.012;
-            p.x += p.vx;
-            p.y += p.vy;
-            p.vx *= 0.99;
-            p.vy *= 0.99;
-            p.vy += 0.015;
-            return p.life > 0;
-        });
-        
-        const iz = this.isZh;
-        const fmtK = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'M' : n + 'K';
-        
-        // Screen shake decay
-        this.shakeX *= 0.9;
-        this.shakeY *= 0.9;
-        
-        // Damage number float
-        this.dmgNumbers = this.dmgNumbers.filter(d => {
+
+    _updateBattle(dt) {
+        const progress = this.elapsed / MAP_BATTLE_CFG.PHASE_MS.battle;
+        const cfg = MAP_BATTLE_CFG;
+
+        // Spawn particles
+        for (let i = 0; i < cfg.PARTICLE_SPAWN_RATE; i++) {
+            this._spawnParticle('left');
+            this._spawnParticle('right');
+        }
+
+        // Get pixel positions
+        const pxL = this.centroidL ? map.latLngToContainerPoint(this.centroidL) : { x: 100, y: 300 };
+        const pxR = this.centroidR ? map.latLngToContainerPoint(this.centroidR) : { x: 700, y: 300 };
+
+        // Frontline shifts toward loser
+        const targetFront = this.winner === 'left' ? 0.35 + (1 - progress) * 0.15 : 0.65 - (1 - progress) * 0.15;
+        this.frontline += (targetFront - this.frontline) * 0.02;
+
+        const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
+        const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
+
+        // Update particles
+        for (let p of this.particles) {
+            if (!p.alive) continue;
+            const origin = p.side === 'left' ? pxL : pxR;
+            const target = { x: midX + (Math.random() - 0.5) * 20, y: midY + (Math.random() - 0.5) * 20 };
+
+            // Move toward target
+            const dx = target.x - p.x;
+            const dy = target.y - p.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < cfg.COLLISION_ZONE) {
+                // Collision!
+                p.alive = false;
+                this._createSpark(p.x, p.y, p.side);
+                // Damage
+                if (p.side === 'left') {
+                    const dmg = (0.3 + Math.random() * 0.5) * (this.ratioL / 0.5);
+                    this.hpR = Math.max(0, this.hpR - dmg);
+                    if (Math.random() < 0.15) this._addDamageNum(p.x, p.y, dmg, 'blue');
+                } else {
+                    const dmg = (0.3 + Math.random() * 0.5) * (this.ratioR / 0.5);
+                    this.hpL = Math.max(0, this.hpL - dmg);
+                    if (Math.random() < 0.15) this._addDamageNum(p.x, p.y, dmg, 'red');
+                }
+            } else {
+                // Move with slight curve
+                const speed = (2.5 + Math.random() * 1.5) * (dt / 16);
+                const perpX = -dy / dist;
+                const perpY = dx / dist;
+                const curve = Math.sin(p.life * 0.1 + p.phase) * 0.3;
+                p.x += (dx / dist + perpX * curve) * speed;
+                p.y += (dy / dist + perpY * curve) * speed;
+            }
+
+            // Trail
+            p.trail.push({ x: p.x, y: p.y });
+            if (p.trail.length > 8) p.trail.shift();
+
+            p.life += dt / 1000;
+            if (p.life > 4) p.alive = false;
+        }
+
+        // Remove dead particles
+        this.particles = this.particles.filter(p => p.alive);
+
+        // Update sparks
+        for (let s of this.sparks) {
+            s.life += dt / 1000;
+            s.radius += 2;
+            s.alpha -= 0.03;
+        }
+        this.sparks = this.sparks.filter(s => s.alpha > 0);
+
+        // Update damage numbers
+        for (let d of this.damageNums) {
             d.y -= 0.8;
-            d.life -= 0.015;
-            return d.life > 0;
+            d.life += dt / 1000;
+            d.alpha = Math.max(0, 1 - d.life / 1.5);
+        }
+        this.damageNums = this.damageNums.filter(d => d.alpha > 0);
+
+        // Update HP bars
+        const hpBarL = document.getElementById('hpBarL');
+        const hpBarR = document.getElementById('hpBarR');
+        if (hpBarL) hpBarL.style.width = this.hpL + '%';
+        if (hpBarR) hpBarR.style.width = this.hpR + '%';
+
+        // Country opacity based on HP
+        this._updateCountryDamage();
+
+        // Battle log events
+        if (progress > 0.2 && this.battleLog.length < 2) {
+            const stronger = this.winner === 'left' ? this.nameL : this.nameR;
+            this._addLog(this.isZh ? `${stronger} 占据优势！` : `${stronger} gains the upper hand!`);
+        }
+        if (progress > 0.5 && this.battleLog.length < 3) {
+            const loser = this.winner === 'left' ? this.nameR : this.nameL;
+            this._addLog(this.isZh ? `${loser} 防线告急` : `${loser}'s defenses crumble`);
+        }
+        if (progress > 0.8 && this.battleLog.length < 4) {
+            this._addLog(this.isZh ? '决战时刻！' : 'The decisive moment!');
+        }
+    }
+
+    _spawnParticle(side) {
+        const px = side === 'left'
+            ? map.latLngToContainerPoint(this.centroidL)
+            : map.latLngToContainerPoint(this.centroidR);
+        if (!px) return;
+
+        const col = side === 'left' ? MAP_BATTLE_CFG.COLORS.blue : MAP_BATTLE_CFG.COLORS.red;
+        this.particles.push({
+            side,
+            x: px.x + (Math.random() - 0.5) * 30,
+            y: px.y + (Math.random() - 0.5) * 30,
+            size: 2 + Math.random() * 3,
+            color: col.main,
+            glow: col.glow,
+            life: 0,
+            phase: Math.random() * Math.PI * 2,
+            trail: [],
+            alive: true,
         });
-        
-        // Update battle units
-        this._updateUnits(progress);
-        
-        if (this.phase === 'intro') {
-            // Dramatic intro
-            if (progress > 0.3 && this.tick % 80 === 0) {
-                this._addLog(iz ? '双方军队集结完毕' : 'Both armies assembled', '#94a3b8');
-            }
-            if (progress > 0.6 && this.tick % 60 === 0) {
-                this._addLog(iz ? '剑拔弩张...' : 'Tensions rising...', '#64748b');
-            }
-            // VS flash at 80% through intro
-            if (Math.abs(progress - 0.8) < 0.02) {
-                this.shakeX += 4;
-                this.shakeY += 2;
-                // Flash particles
-                const cxI = this.w / 2, cyI = this.h / 2;
-                for (let i = 0; i < 20; i++) {
-                    const angle = Math.random() * Math.PI * 2;
-                    this.particles.push({
-                        x: cxI, y: cyI,
-                        vx: Math.cos(angle) * (1 + Math.random() * 3),
-                        vy: Math.sin(angle) * (1 + Math.random() * 3),
-                        life: 0.5 + Math.random() * 0.3,
-                        color: '#fff',
-                        size: 1 + Math.random() * 2,
-                    });
-                }
-            }
-        } else if (this.phase === 'clash') {
-            // Battle progresses
-            const winArmies = this.winner === 'left' ? this.armiesL : this.armiesR;
-            const loseArmies = this.winner === 'left' ? this.armiesR : this.armiesL;
-            
-            // Apply damage over time
-            loseArmies.forEach((a, i) => {
-                if (a.destroyed) return;
-                const baseDmg = 50 + i * 15; // later units take more damage
-                const dmg = progress * (baseDmg + Math.random() * 40);
-                a.hp = Math.max(0, 100 - dmg);
-                a.casualties = Math.round(a.troops * (1 - a.hp / 100));
-                if (a.hp <= 5 && progress > 0.7) a.destroyed = true;
+    }
+
+    _createSpark(x, y, side) {
+        // Expanding ring
+        this.sparks.push({
+            x, y, radius: 3, alpha: 0.8,
+            color: MAP_BATTLE_CFG.COLORS.gold,
+            type: 'ring',
+        });
+        // Small fragments
+        for (let i = 0; i < 5; i++) {
+            const angle = (Math.PI * 2 / 5) * i + Math.random() * 0.5;
+            this.sparks.push({
+                x, y,
+                vx: Math.cos(angle) * (2 + Math.random() * 3),
+                vy: Math.sin(angle) * (2 + Math.random() * 3),
+                radius: 1.5, alpha: 1,
+                color: side === 'left' ? MAP_BATTLE_CFG.COLORS.blue.light : MAP_BATTLE_CFG.COLORS.red.light,
+                type: 'frag',
             });
-            winArmies.forEach((a, i) => {
-                const dmg = progress * (10 + Math.random() * 20);
-                a.hp = Math.max(15, 100 - dmg);
-                a.casualties = Math.round(a.troops * (1 - a.hp / 100));
-            });
-            
-            // Update HP bars with color transitions
-            const hpColor = (hp, baseColor) => {
-                if (hp > 60) return baseColor;
-                if (hp > 30) return '#f59e0b'; // yellow
-                return '#ef4444'; // red
-            };
-            this.armiesL.forEach((a, i) => {
-                const hpEl = document.getElementById('bArmyLH' + i);
-                const tEl = document.getElementById('bArmyLT' + i);
-                const rowEl = document.getElementById('bArmyL' + i);
-                if (hpEl) {
-                    hpEl.style.width = a.hp + '%';
-                    hpEl.style.background = hpColor(a.hp, MAP_BATTLE_CFG.COLORS.blue.main);
-                }
-                if (tEl) tEl.textContent = fmtK(Math.max(0, a.troops - a.casualties));
-                if (rowEl) {
-                    if (a.destroyed && !rowEl.classList.contains('destroyed')) {
-                        rowEl.style.animation = 'none';
-                        rowEl.offsetHeight; // reflow
-                        rowEl.style.animation = 'destroyFlash 0.5s ease';
-                    }
-                    rowEl.classList.toggle('destroyed', a.destroyed);
-                }
-            });
-            this.armiesR.forEach((a, i) => {
-                const hpEl = document.getElementById('bArmyRH' + i);
-                const tEl = document.getElementById('bArmyRT' + i);
-                const rowEl = document.getElementById('bArmyR' + i);
-                if (hpEl) {
-                    hpEl.style.width = a.hp + '%';
-                    hpEl.style.background = hpColor(a.hp, MAP_BATTLE_CFG.COLORS.red.main);
-                }
-                if (tEl) tEl.textContent = fmtK(Math.max(0, a.troops - a.casualties));
-                if (rowEl) {
-                    if (a.destroyed && !rowEl.classList.contains('destroyed')) {
-                        rowEl.style.animation = 'none';
-                        rowEl.offsetHeight;
-                        rowEl.style.animation = 'destroyFlash 0.5s ease';
-                    }
-                    rowEl.classList.toggle('destroyed', a.destroyed);
-                }
-            });
-            
-            // Update force bars
-            const remainL = this.armiesL.reduce((s, a) => s + Math.max(0, a.troops - a.casualties), 0);
-            const remainR = this.armiesR.reduce((s, a) => s + Math.max(0, a.troops - a.casualties), 0);
-            const totalR = remainL + remainR || 1;
-            document.getElementById('bBarL').style.flex = Math.round(remainL / totalR * 100);
-            document.getElementById('bBarR').style.flex = Math.round(remainR / totalR * 100);
-            document.getElementById('bForceL').textContent = fmtK(remainL);
-            document.getElementById('bForceR').textContent = fmtK(remainR);
-            
-            // Momentum shifts
-            this.momentum = (this.winner === 'left' ? 1 : -1) * progress * 0.5;
-            
-            // Spawn particles at center
-            if (this.tick % 2 === 0) {
-                const cx = this.w / 2, cy = this.h / 2;
-                for (let i = 0; i < 3; i++) {
-                    const angle = Math.random() * Math.PI * 2;
-                    const speed = 1 + Math.random() * 3;
-                    this.particles.push({
-                        x: cx + (Math.random() - 0.5) * 60,
-                        y: cy + (Math.random() - 0.5) * 40,
-                        vx: Math.cos(angle) * speed,
-                        vy: Math.sin(angle) * speed - 0.5,
-                        life: 0.5 + Math.random() * 0.5,
-                        color: Math.random() > 0.6 ? MAP_BATTLE_CFG.COLORS.gold : 
-                               Math.random() > 0.5 ? MAP_BATTLE_CFG.COLORS.blue.light : MAP_BATTLE_CFG.COLORS.red.light,
-                        size: 1 + Math.random() * 2.5,
-                    });
-                }
+        }
+    }
+
+    _addDamageNum(x, y, dmg, color) {
+        this.damageNums.push({
+            x, y: y - 10,
+            text: '-' + Math.round(dmg * 10),
+            color: color === 'blue' ? MAP_BATTLE_CFG.COLORS.blue.main : MAP_BATTLE_CFG.COLORS.red.main,
+            life: 0, alpha: 1,
+        });
+    }
+
+    _addLog(msg) {
+        this.battleLog.push(msg);
+        const box = document.getElementById('battleLogBox');
+        if (box) {
+            box.innerHTML = this.battleLog.slice(-3).map(m =>
+                `<div style="opacity:${0.6 + 0.4 * (1)}">${m}</div>`
+            ).join('');
+        }
+    }
+
+    _updateCountryDamage() {
+        const colL = MAP_BATTLE_CFG.COLORS.blue;
+        const colR = MAP_BATTLE_CFG.COLORS.red;
+        geoLayer.eachLayer(layer => {
+            const props = layer.feature.properties;
+            let iso = props.ISO_A3;
+            if (iso === '-99' && typeof ISO_FIXES !== 'undefined')
+                iso = ISO_FIXES[props.NAME] || iso;
+            if (iso === this.leftISO) {
+                layer.setStyle({ fillOpacity: 0.15 + 0.35 * (this.hpL / 100) });
+            } else if (iso === this.rightISO) {
+                layer.setStyle({ fillOpacity: 0.15 + 0.35 * (this.hpR / 100) });
             }
-            
-            // Phase text
-            const phaseEl = document.getElementById('bPhase');
-            if (phaseEl) {
-                if (progress < 0.3) phaseEl.textContent = iz ? '前线交火' : 'FRONTLINES ENGAGED';
-                else if (progress < 0.6) phaseEl.textContent = iz ? '激战中' : 'HEAVY FIGHTING';
-                else phaseEl.textContent = iz ? '决战时刻' : 'DECISIVE MOMENT';
+        });
+    }
+
+    _showVictory() {
+        const winISO = this.winner === 'left' ? this.leftISO : this.rightISO;
+        const winName = this.winner === 'left' ? this.nameL : this.nameR;
+        const loseName = this.winner === 'left' ? this.nameR : this.nameL;
+        const winRatio = this.winner === 'left' ? this.ratioL : this.ratioR;
+
+        // Highlight winner territory
+        geoLayer.eachLayer(layer => {
+            const props = layer.feature.properties;
+            let iso = props.ISO_A3;
+            if (iso === '-99' && typeof ISO_FIXES !== 'undefined')
+                iso = ISO_FIXES[props.NAME] || iso;
+            if (iso === winISO) {
+                layer.setStyle({
+                    fillColor: MAP_BATTLE_CFG.COLORS.victory,
+                    fillOpacity: 0.55,
+                    color: MAP_BATTLE_CFG.COLORS.victory,
+                    weight: 3,
+                });
             }
-            
-            // Battle narration
-            this._emitBattleEvent(progress);
-        } else if (this.phase === 'resolve') {
-            // Slow particle decay
-            if (this.tick % 6 === 0) {
-                const cx = this.w / 2, cy = this.h / 2;
-                this.particles.push({
-                    x: cx + (Math.random() - 0.5) * 80,
-                    y: cy + (Math.random() - 0.5) * 60,
-                    vx: (Math.random() - 0.5) * 0.5,
-                    vy: -0.3 - Math.random() * 0.3,
-                    life: 0.8,
-                    color: 'rgba(148,163,184,0.3)',
-                    size: 2 + Math.random() * 4,
+        });
+
+        // Victory banner
+        let banner = document.getElementById('victoryBanner');
+        if (banner) banner.remove();
+        banner = document.createElement('div');
+        banner.id = 'victoryBanner';
+        banner.style.cssText = `
+            position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.5);
+            z-index:750; text-align:center; pointer-events:none;
+            font-family:Inter,system-ui,sans-serif;
+            opacity:0; transition:all 0.8s cubic-bezier(0.34,1.56,0.64,1);
+        `;
+        banner.innerHTML = `
+            <div style="font-size:14px;color:#94a3b8;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px">
+                ${this.isZh ? '胜利' : 'VICTORY'}
+            </div>
+            <div style="font-size:42px;font-weight:900;color:${MAP_BATTLE_CFG.COLORS.victory};text-shadow:0 0 40px rgba(52,211,153,0.5)">
+                ${winName}
+            </div>
+            <div style="font-size:13px;color:#64748b;margin-top:8px">
+                ${(winRatio * 100).toFixed(1)}% ${this.isZh ? '综合实力优势' : 'overall strength'}
+            </div>
+            <div style="margin-top:12px;font-size:11px;color:#475569">
+                ${this.isZh ? `${loseName} 战败` : `${loseName} defeated`}
+            </div>
+        `;
+        map.getContainer().appendChild(banner);
+        this.victoryBanner = banner;
+        requestAnimationFrame(() => {
+            banner.style.opacity = '1';
+            banner.style.transform = 'translate(-50%,-50%) scale(1)';
+        });
+
+        // Victory confetti from winner centroid
+        const winCentroid = this.winner === 'left' ? this.centroidL : this.centroidR;
+        if (winCentroid) {
+            const px = map.latLngToContainerPoint(winCentroid);
+            for (let i = 0; i < 30; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 3 + Math.random() * 5;
+                this.sparks.push({
+                    x: px.x, y: px.y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed - 2,
+                    radius: 2 + Math.random() * 2,
+                    alpha: 1,
+                    color: ['#34d399', '#f59e0b', '#4f8ff7', '#f06060', '#a78bfa'][Math.floor(Math.random() * 5)],
+                    type: 'confetti',
                 });
             }
         }
+
+        this._addLog(this.isZh ? `${winName} 取得胜利！` : `${winName} claims victory!`);
     }
-    
-    _updateUnits(progress) {
-        const cx = this.w / 2, cy = this.h / 2;
-        const spacing = 24;
-        
-        this.units.forEach(u => {
-            if (!u.alive) return;
-            
-            if (this.phase === 'intro') {
-                // Units gather in formation on their side
-                const baseX = u.side === 'left' ? cx - 160 : cx + 160;
-                const baseY = cy - 45 + u.row * spacing;
-                const colOffset = u.col * (spacing + 4) * (u.side === 'left' ? -1 : 1);
-                u.targetX = baseX + colOffset;
-                u.targetY = baseY;
-            } else if (this.phase === 'clash') {
-                // Units advance toward center, then engage  
-                const advanceX = u.side === 'left' ? cx - 50 + u.col * 16 : cx + 50 - u.col * 16;
-                const baseY = cy - 45 + u.row * spacing;
-                u.targetX = advanceX;
-                u.targetY = baseY + (Math.sin(this.tick * 0.05 + u.row) * 3);
-                
-                // Random attack lunges
-                if (u.attacking) {
-                    u.attackTimer--;
-                    const lunge = u.side === 'left' ? 25 : -25;
-                    u.targetX += lunge;
-                    if (u.attackTimer <= 0) u.attacking = false;
-                } else if (Math.random() < 0.008) {
-                    u.attacking = true;
-                    u.attackTimer = 15;
-                    // Screen shake on attack
-                    this.shakeX += (Math.random() - 0.5) * 2;
-                    this.shakeY += (Math.random() - 0.5) * 1;
-                    // Damage number
-                    const dmg = Math.floor(Math.random() * 200 + 50);
-                    this.dmgNumbers.push({
-                        x: u.targetX + (u.side === 'left' ? 30 : -30),
-                        y: u.targetY - 10,
-                        text: '-' + dmg,
-                        color: u.side === 'left' ? MAP_BATTLE_CFG.COLORS.red.main : MAP_BATTLE_CFG.COLORS.blue.main,
-                        life: 1,
-                    });
-                    // Spark particles at impact
-                    for (let i = 0; i < 3; i++) {
-                        this.particles.push({
-                            x: cx + (Math.random() - 0.5) * 30,
-                            y: cy + (Math.random() - 0.5) * 20 + u.row * spacing - 30,
-                            vx: (Math.random() - 0.5) * 3,
-                            vy: -1 - Math.random() * 2,
-                            life: 0.4 + Math.random() * 0.3,
-                            color: MAP_BATTLE_CFG.COLORS.gold,
-                            size: 1.5 + Math.random() * 1.5,
-                        });
-                    }
-                }
-                
-                // Kill loser units gradually
-                const isLoser = (this.winner === 'left' && u.side === 'right') || (this.winner === 'right' && u.side === 'left');
-                if (isLoser && progress > 0.3 && Math.random() < 0.002 * progress) {
-                    u.alive = false;
-                    // Death particles
-                    for (let i = 0; i < 5; i++) {
-                        this.particles.push({
-                            x: u.x, y: u.y,
-                            vx: (Math.random() - 0.5) * 2,
-                            vy: -0.5 - Math.random() * 1.5,
-                            life: 0.6,
-                            color: u.side === 'left' ? MAP_BATTLE_CFG.COLORS.blue.light : MAP_BATTLE_CFG.COLORS.red.light,
-                            size: 2 + Math.random() * 2,
-                        });
-                    }
-                    this.shakeX += (Math.random() - 0.5) * 3;
-                    this.shakeY += (Math.random() - 0.5) * 2;
-                }
-            } else if (this.phase === 'resolve') {
-                // Winner pushes forward, loser retreats
-                const isWinner = (this.winner === 'left' && u.side === 'left') || (this.winner === 'right' && u.side === 'right');
-                if (isWinner) {
-                    u.targetX = cx + (u.side === 'left' ? 20 : -20);
-                } else {
-                    u.targetX = u.side === 'left' ? cx - 250 - u.col * 20 : cx + 250 + u.col * 20;
-                }
-            } else if (this.phase === 'victory') {
-                // Winner units celebrate (bounce)
-                const isWinner = (this.winner === 'left' && u.side === 'left') || (this.winner === 'right' && u.side === 'right');
-                if (isWinner) {
-                    u.targetY = cy - 30 + u.row * spacing + Math.sin(this.tick * 0.1 + u.col) * 5;
-                }
+
+    _updateVictory(dt) {
+        // Animate confetti
+        for (let s of this.sparks) {
+            if (s.type === 'confetti') {
+                s.x += s.vx;
+                s.y += s.vy;
+                s.vy += 0.1; // gravity
+                s.alpha -= 0.008;
             }
-            
-            // Smooth movement
-            u.x += (u.targetX - u.x) * 0.08;
-            u.y += (u.targetY - u.y) * 0.08;
-        });
-    }
-    
-    _emitBattleEvent(progress) {
-        if (!this._usedEvents) this._usedEvents = new Set();
-        if (this.tick % 70 !== 35) return;
-        
-        const iz = this.isZh;
-        const wn = this.winner === 'left' ? this.shortL : this.shortR;
-        const ln = this.winner === 'left' ? this.shortR : this.shortL;
-        const yr = this.year;
-        const isAnc = yr < 500, isMed = yr >= 500 && yr < 1500;
-        
-        const pool = isAnc ? [
-            [wn + ' chariots break through', wn + ' 战车突破敌阵'],
-            ['Arrow volleys darken the sky', '箭雨遮天蔽日'],
-            [ln + ' flanks crumble', ln + ' 侧翼崩溃'],
-            [wn + ' cavalry charges from the rear', wn + ' 骑兵从后方冲锋'],
-            ['The river runs red', '河水染红'],
-            [wn + ' general rallies the troops', wn + ' 将领亲自督战'],
-        ] : isMed ? [
-            [wn + ' heavy cavalry smashes the line', wn + ' 重骑兵冲破防线'],
-            ['Castle walls breached', '城墙被攻破'],
-            [ln + ' reserves committed', ln + ' 投入预备队'],
-            [wn + ' archers suppress defenders', wn + ' 弓箭手压制守军'],
-            ['Supply train captured', '辎重被夺'],
-            [wn + ' siege tower reaches the wall', wn + ' 攻城塔抵达城墙'],
-        ] : [
-            [wn + ' achieves air superiority', wn + ' 取得制空权'],
-            [ln + ' defensive line broken', ln + ' 防线被突破'],
-            ['Artillery barrage intensifies', '炮火更加猛烈'],
-            [wn + ' armor pushes through', wn + ' 装甲部队推进'],
-            [ln + ' communications disrupted', ln + ' 通讯中断'],
-            [wn + ' special forces behind enemy lines', wn + ' 特种部队渗透敌后'],
-        ];
-        
-        const available = pool.filter((_, i) => !this._usedEvents.has(i));
-        if (available.length > 0) {
-            const pick = available[Math.floor(Math.random() * available.length)];
-            this._usedEvents.add(pool.indexOf(pick));
-            this._addLog(iz ? pick[1] : pick[0], MAP_BATTLE_CFG.COLORS.gold);
-        }
-    }
-    
-    _resolveOutcome() {
-        const iz = this.isZh;
-        const wn = this.winner === 'left' ? this.shortL : this.shortR;
-        const ln = this.winner === 'left' ? this.shortR : this.shortL;
-        const pct = Math.round(Math.max(this.ratioL, this.ratioR) * 100);
-        
-        const totalCasL = this.armiesL.reduce((s, a) => s + a.casualties, 0);
-        const totalCasR = this.armiesR.reduce((s, a) => s + a.casualties, 0);
-        const fmtK = n => n >= 1000 ? (n / 1000).toFixed(0) + 'M' : n + 'K';
-        
-        this._addLog('────────', '#334155');
-        this._addLog(iz ? `${wn} 获胜！` : `${wn} WINS!`, MAP_BATTLE_CFG.COLORS.victory);
-        this._addLog(iz ? `综合国力优势：${pct}%` : `Strength advantage: ${pct}%`, '#fff');
-        this._addLog(iz ? `伤亡：${this.shortL} ${fmtK(totalCasL)} / ${this.shortR} ${fmtK(totalCasR)}` : `Casualties: ${this.shortL} ${fmtK(totalCasL)} / ${this.shortR} ${fmtK(totalCasR)}`, '#94a3b8');
-        
-        const phaseEl = document.getElementById('bPhase');
-        if (phaseEl) {
-            phaseEl.textContent = iz ? `${wn} 获胜` : `${wn} VICTORY`;
-            phaseEl.style.color = MAP_BATTLE_CFG.COLORS.victory;
-            phaseEl.style.fontSize = '16px';
-        }
-    }
-    
-    _showVictory() {
-        const wn = this.winner === 'left' ? this.shortL : this.shortR;
-        const winColor = this.winner === 'left' ? MAP_BATTLE_CFG.COLORS.blue.main : MAP_BATTLE_CFG.COLORS.red.main;
-        const iz = this.isZh;
-        
-        // Show victory overlay in center
-        const center = document.querySelector('.battle-center');
-        if (center) {
-            center.innerHTML = `
-                <div style="font-size:10px;color:#64748b;letter-spacing:4px;font-weight:600;margin-bottom:8px;">${iz ? '战争结束' : 'WAR CONCLUDED'}</div>
-                <div style="font-size:clamp(36px,6vw,64px);font-weight:900;color:${winColor};letter-spacing:2px;text-shadow:0 0 40px ${winColor}33;">${wn}</div>
-                <div style="font-size:14px;color:${MAP_BATTLE_CFG.COLORS.victory};font-weight:700;letter-spacing:4px;margin-top:4px;animation:victoryPulse 2s ease infinite;">${iz ? '获胜' : 'VICTORY'}</div>
-            `;
-        }
-        
-        // Show battle again button with fade
-        const btn = document.getElementById('bAgainBtn');
-        if (btn) { btn.style.display = 'block'; btn.style.opacity = '0'; setTimeout(() => { btn.style.transition = 'opacity 0.5s'; btn.style.opacity = '1'; }, 100); }
-        
-        // Victory confetti burst
-        const cxV = this.w / 2, cyV = this.h / 2;
-        for (let i = 0; i < 80; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const speed = 1.5 + Math.random() * 6;
-            const colors = [winColor, MAP_BATTLE_CFG.COLORS.gold, MAP_BATTLE_CFG.COLORS.victory, '#fff', winColor];
-            this.particles.push({
-                x: cxV + (Math.random() - 0.5) * 40,
-                y: cyV + (Math.random() - 0.5) * 20,
-                vx: Math.cos(angle) * speed,
-                vy: Math.sin(angle) * speed - 2,
-                life: 1.5 + Math.random() * 1,
-                color: colors[Math.floor(Math.random() * colors.length)],
-                size: 1.5 + Math.random() * 3,
-            });
-        }
-    }
-    
-    _draw() {
-        const ctx = this.ctx;
-        ctx.clearRect(0, 0, this.w, this.h);
-        
-        const cx = this.w / 2, cy = this.h / 2;
-        
-        // Terrain hints in battle area (subtle horizontal lines)
-        if (this.phase === 'clash' || this.phase === 'resolve') {
-            ctx.globalAlpha = 0.02;
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 0.5;
-            for (let i = -3; i <= 3; i++) {
-                ctx.beginPath();
-                ctx.moveTo(cx - 200, cy + i * 20);
-                ctx.lineTo(cx + 200, cy + i * 20);
-                ctx.stroke();
+            if (s.type === 'frag') {
+                s.x += (s.vx || 0);
+                s.y += (s.vy || 0);
+                s.alpha -= 0.02;
             }
-            ctx.globalAlpha = 1;
+            s.life = (s.life || 0) + dt / 1000;
         }
-        
-        // Ambient floating dust particles
-        if (this.tick % 8 === 0) {
-            this.particles.push({
-                x: Math.random() * this.w,
-                y: this.h + 5,
-                vx: (Math.random() - 0.5) * 0.3,
-                vy: -0.2 - Math.random() * 0.3,
-                life: 2 + Math.random() * 2,
-                color: 'rgba(148,163,184,0.15)',
-                size: 1 + Math.random() * 1.5,
-            });
-        }
-        
-        // Center battle effects
-        if (this.phase === 'clash') {
-            // Expanding shockwave rings
-            for (let ring = 0; ring < 3; ring++) {
-                const phase = ((this.tick * 0.015 + ring * 0.33) % 1);
-                const radius = 20 + phase * 80;
-                const alpha = (1 - phase) * 0.08;
-                ctx.globalAlpha = alpha;
-                ctx.strokeStyle = MAP_BATTLE_CFG.COLORS.gold;
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-                ctx.stroke();
+        this.sparks = this.sparks.filter(s => s.alpha > 0);
+    }
+
+    _render() {
+        if (!this.ctx || !this.canvas) return;
+        const w = this.canvas.width / (window.devicePixelRatio || 1);
+        const h = this.canvas.height / (window.devicePixelRatio || 1);
+        this.ctx.clearRect(0, 0, w, h);
+
+        // Draw particle trails
+        for (const p of this.particles) {
+            if (!p.alive || p.trail.length < 2) continue;
+            this.ctx.beginPath();
+            this.ctx.moveTo(p.trail[0].x, p.trail[0].y);
+            for (let i = 1; i < p.trail.length; i++) {
+                this.ctx.lineTo(p.trail[i].x, p.trail[i].y);
             }
-            
-            // Center glow
-            const glowPulse = Math.sin(this.tick * 0.06) * 0.3 + 0.7;
-            const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 40);
-            grd.addColorStop(0, `rgba(245,158,11,${0.08 * glowPulse})`);
-            grd.addColorStop(1, 'rgba(245,158,11,0)');
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = grd;
-            ctx.beginPath();
-            ctx.arc(cx, cy, 40, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Frontline indicator (vertical line that shifts with momentum)
-            const frontX = cx + this.momentum * 80;
-            ctx.globalAlpha = 0.15;
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([4, 8]);
-            ctx.beginPath();
-            ctx.moveTo(frontX, cy - 60);
-            ctx.lineTo(frontX, cy + 60);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.globalAlpha = 1;
-            
-            // Side glow showing momentum
-            const blueX = cx - 120 - this.momentum * 60;
-            const redX = cx + 120 - this.momentum * 60;
-            
-            const blueGrd = ctx.createRadialGradient(blueX, cy, 0, blueX, cy, 60);
-            blueGrd.addColorStop(0, `rgba(79,143,247,0.06)`);
-            blueGrd.addColorStop(1, 'rgba(79,143,247,0)');
-            ctx.fillStyle = blueGrd;
-            ctx.beginPath();
-            ctx.arc(blueX, cy, 60, 0, Math.PI * 2);
-            ctx.fill();
-            
-            const redGrd = ctx.createRadialGradient(redX, cy, 0, redX, cy, 60);
-            redGrd.addColorStop(0, `rgba(240,96,96,0.06)`);
-            redGrd.addColorStop(1, 'rgba(240,96,96,0)');
-            ctx.fillStyle = redGrd;
-            ctx.beginPath();
-            ctx.arc(redX, cy, 60, 0, Math.PI * 2);
-            ctx.fill();
+            this.ctx.strokeStyle = p.color;
+            this.ctx.lineWidth = p.size * 0.6;
+            this.ctx.globalAlpha = 0.3;
+            this.ctx.stroke();
         }
-        
-        // Clash zone glow behind units
-        if (this.phase === 'clash' || this.phase === 'resolve') {
-            const zoneGrd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 120);
-            zoneGrd.addColorStop(0, 'rgba(245,158,11,0.04)');
-            zoneGrd.addColorStop(0.5, 'rgba(245,158,11,0.02)');
-            zoneGrd.addColorStop(1, 'rgba(245,158,11,0)');
-            ctx.fillStyle = zoneGrd;
-            ctx.beginPath();
-            ctx.ellipse(cx, cy, 140, 80, 0, 0, Math.PI * 2);
-            ctx.fill();
+
+        // Draw particles with glow
+        this.ctx.globalAlpha = 1;
+        for (const p of this.particles) {
+            if (!p.alive) continue;
+            // Glow
+            this.ctx.beginPath();
+            this.ctx.arc(p.x, p.y, p.size * 2.5, 0, Math.PI * 2);
+            this.ctx.fillStyle = p.glow;
+            this.ctx.globalAlpha = 0.15;
+            this.ctx.fill();
+            // Core
+            this.ctx.beginPath();
+            this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            this.ctx.fillStyle = p.color;
+            this.ctx.globalAlpha = 0.9;
+            this.ctx.fill();
         }
-        
-        // Apply screen shake
-        ctx.save();
-        ctx.translate(this.shakeX, this.shakeY);
-        
-        // Draw battle units
-        this.units.forEach(u => {
-            if (!u.alive) return;
-            const colors = u.side === 'left' ? MAP_BATTLE_CFG.COLORS.blue : MAP_BATTLE_CFG.COLORS.red;
-            const s = u.size;
-            
-            // Unit glow
-            ctx.globalAlpha = 0.15;
-            ctx.fillStyle = colors.main;
-            ctx.beginPath();
-            ctx.arc(u.x, u.y, s + 4, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Unit body (rounded square)
-            ctx.globalAlpha = u.attacking ? 1 : 0.85;
-            ctx.fillStyle = colors.main;
-            ctx.beginPath();
-            ctx.roundRect(u.x - s / 2, u.y - s / 2, s, s, 2);
-            ctx.fill();
-            
-            // Inner highlight
-            ctx.globalAlpha = 0.4;
-            ctx.fillStyle = colors.light;
-            ctx.beginPath();
-            ctx.roundRect(u.x - s / 2 + 1, u.y - s / 2 + 1, s / 2, s / 2, 1);
-            ctx.fill();
-            
-            // HP bar under unit
-            if (u.hp < 100) {
-                ctx.globalAlpha = 0.6;
-                ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                ctx.fillRect(u.x - s / 2, u.y + s / 2 + 2, s, 2);
-                ctx.fillStyle = u.hp > 50 ? colors.main : (u.hp > 25 ? MAP_BATTLE_CFG.COLORS.gold : '#ef4444');
-                ctx.fillRect(u.x - s / 2, u.y + s / 2 + 2, s * (u.hp / 100), 2);
+
+        // Draw sparks
+        this.ctx.globalAlpha = 1;
+        for (const s of this.sparks) {
+            if (s.type === 'ring') {
+                this.ctx.beginPath();
+                this.ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+                this.ctx.strokeStyle = s.color;
+                this.ctx.lineWidth = 2;
+                this.ctx.globalAlpha = s.alpha * 0.6;
+                this.ctx.stroke();
+                // Inner glow
+                this.ctx.beginPath();
+                this.ctx.arc(s.x, s.y, s.radius * 0.5, 0, Math.PI * 2);
+                this.ctx.fillStyle = s.color;
+                this.ctx.globalAlpha = s.alpha * 0.2;
+                this.ctx.fill();
+            } else {
+                this.ctx.beginPath();
+                this.ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+                this.ctx.fillStyle = s.color;
+                this.ctx.globalAlpha = s.alpha;
+                this.ctx.fill();
             }
-            ctx.globalAlpha = 1;
-        });
-        
+        }
+
         // Draw damage numbers
-        this.dmgNumbers.forEach(d => {
-            ctx.globalAlpha = Math.min(1, d.life) * 0.9;
-            ctx.font = '700 14px Inter,system-ui,sans-serif';
-            ctx.fillStyle = d.color;
-            ctx.textAlign = 'center';
-            ctx.fillText(d.text, d.x, d.y);
-        });
-        
-        ctx.restore(); // End screen shake
-        
-        // Particles (drawn without shake)
-        this.particles.forEach(p => {
-            ctx.globalAlpha = Math.min(1, p.life) * 0.8;
-            ctx.fillStyle = p.color;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.size * Math.min(1, p.life), 0, Math.PI * 2);
-            ctx.fill();
-        });
-        
-        ctx.globalAlpha = 1;
-    }
-    
-    _addLog(text, color) {
-        this.battleLog.push({ text, color: color || '#94a3b8' });
-        const el = document.getElementById('bLog');
-        if (el) {
-            el.innerHTML = this.battleLog.map(e =>
-                `<div class="battle-log-entry" style="color:${e.color};">${e.text}</div>`
-            ).join('');
-            el.scrollTop = el.scrollHeight;
+        this.ctx.textAlign = 'center';
+        this.ctx.font = 'bold 14px Inter, system-ui, sans-serif';
+        for (const d of this.damageNums) {
+            this.ctx.globalAlpha = d.alpha;
+            this.ctx.fillStyle = d.color;
+            this.ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            this.ctx.shadowBlur = 4;
+            this.ctx.fillText(d.text, d.x, d.y);
+            this.ctx.shadowBlur = 0;
         }
-    }
-    
-    cleanup() {
-        this.running = false;
-        if (this.animId) cancelAnimationFrame(this.animId);
-        window.removeEventListener('resize', this._resizeHandler);
-        const overlay = document.getElementById('battleOverlay');
-        if (overlay) {
-            overlay.style.opacity = '0';
-            setTimeout(() => overlay.remove(), 800);
+
+        // Draw frontline glow (during battle)
+        if (this.phase === 'battle' && this.centroidL && this.centroidR) {
+            const pxL = map.latLngToContainerPoint(this.centroidL);
+            const pxR = map.latLngToContainerPoint(this.centroidR);
+            const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
+            const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
+
+            // Pulsing glow at frontline
+            const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * 0.004);
+            const grad = this.ctx.createRadialGradient(midX, midY, 0, midX, midY, 30 + pulse * 15);
+            grad.addColorStop(0, `rgba(245,158,11,${0.25 * pulse})`);
+            grad.addColorStop(1, 'rgba(245,158,11,0)');
+            this.ctx.globalAlpha = 1;
+            this.ctx.fillStyle = grad;
+            this.ctx.beginPath();
+            this.ctx.arc(midX, midY, 45, 0, Math.PI * 2);
+            this.ctx.fill();
         }
-        if (this.onComplete) this.onComplete(this.winner, this.ratioL, this.ratioR);
+
+        // Draw connection lines (subtle)
+        if (this.phase === 'battle' && this.centroidL && this.centroidR) {
+            const pxL = map.latLngToContainerPoint(this.centroidL);
+            const pxR = map.latLngToContainerPoint(this.centroidR);
+            this.ctx.beginPath();
+            this.ctx.moveTo(pxL.x, pxL.y);
+            this.ctx.lineTo(pxR.x, pxR.y);
+            this.ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+            this.ctx.lineWidth = 1;
+            this.ctx.globalAlpha = 1;
+            this.ctx.stroke();
+        }
+
+        this.ctx.globalAlpha = 1;
     }
-    
-    stop() {
-        this.cleanup();
+
+    _cleanup() {
+        // Remove canvas
+        if (this.canvas && this.canvas.parentNode) {
+            this.canvas.parentNode.removeChild(this.canvas);
+        }
+        // Remove HUD
+        if (this.hud && this.hud.parentNode) {
+            this.hud.parentNode.removeChild(this.hud);
+        }
+        // Remove victory banner
+        const banner = document.getElementById('victoryBanner');
+        if (banner) banner.remove();
+
+        // Restore country styles
+        this.savedStyles.forEach((style, layer) => {
+            try {
+                layer.setStyle(style);
+            } catch (e) {}
+        });
+        this.savedStyles.clear();
+
+        activeMapBattle = null;
     }
 }
 
-// ===== VS Selection Modal =====
+// ===== VS MODAL (preserved) =====
+
 let activeMapBattle = null;
+let vsModalCountries = [null, null];
+let vsModalSlot = 0;
+let vsModalSelecting = false;
 
 function showVsModal() {
     let modal = document.getElementById('vsModal');
+    const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'vsModal';
-        const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
+        modal.style.cssText = `position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1500;background:rgba(10,14,23,0.95);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:24px 28px;min-width:340px;font-family:Inter,system-ui,sans-serif;color:#e2e8f0;box-shadow:0 12px 48px rgba(0,0,0,0.6);`;
         modal.innerHTML = `
-            <div class="vs-modal-backdrop"></div>
-            <div class="vs-modal-content">
-                <div class="vs-modal-title">${isZh ? '选择对战双方' : 'SELECT COMBATANTS'}</div>
-                <div class="vs-modal-row">
-                    <div class="vs-modal-search-wrap">
-                        <input type="text" class="vs-modal-search" id="vsSearchLeft" placeholder="${isZh ? '搜索国家...' : 'Search country...'}" autocomplete="off">
-                        <div class="vs-modal-dropdown" id="vsDropLeft"></div>
-                        <div class="vs-modal-selected" id="vsSelectedLeft" style="display:none"></div>
+            <div style="text-align:center;margin-bottom:16px">
+                <div style="font-size:20px;font-weight:800;color:#f59e0b">VS</div>
+                <div class="vs-modal-year" id="vsModalYear">${typeof yearLabel !== 'undefined' ? yearLabel(TIME_PERIODS[currentIndex]) : ''}</div>
+                <div style="font-size:11px;color:#64748b;margin:4px 0">${isZh ? '在地图上点击选择国家，或搜索' : 'Click map to select countries, or search'}</div>
+            </div>
+            <div style="display:flex;gap:16px;align-items:center">
+                <div style="flex:1;text-align:center">
+                    <div style="font-size:10px;color:${MAP_BATTLE_CFG.COLORS.blue.main};margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">${isZh ? '左方' : 'LEFT'}</div>
+                    <div class="vs-modal-search-wrap" style="position:relative">
+                        <input id="vsSearchL" type="text" placeholder="${isZh ? '搜索国家...' : 'Search...'}" style="width:100%;padding:6px 10px;background:rgba(255,255,255,0.05);border:1px solid rgba(79,143,247,0.3);border-radius:8px;color:#e2e8f0;font-size:12px;outline:none;">
+                        <div id="vsDropL" style="display:none;position:absolute;top:100%;left:0;right:0;background:rgba(10,14,23,0.95);border:1px solid rgba(255,255,255,0.08);border-radius:8px;max-height:160px;overflow-y:auto;z-index:10;margin-top:2px;"></div>
                     </div>
-                    <div class="vs-modal-vs">VS</div>
-                    <div class="vs-modal-search-wrap">
-                        <input type="text" class="vs-modal-search" id="vsSearchRight" placeholder="${isZh ? '搜索国家...' : 'Search country...'}" autocomplete="off">
-                        <div class="vs-modal-dropdown" id="vsDropRight"></div>
-                        <div class="vs-modal-selected" id="vsSelectedRight" style="display:none"></div>
-                    </div>
+                    <div id="vsSelectedL" style="display:none;font-size:14px;font-weight:700;cursor:pointer;padding:6px;"></div>
                 </div>
-                <div class="vs-modal-year" id="vsModalYear">${yearLabel(TIME_PERIODS[currentIndex])}</div>
-                <div id="vsModalPreview" style="font-size:10px;color:#64748b;margin:6px 0;min-height:20px;text-align:center;"></div>
-                <button class="vs-modal-go" id="vsModalGo" disabled>${isZh ? '开战' : 'START BATTLE'}</button>
-                <button class="vs-modal-cancel" onclick="closeVsModal()">${isZh ? '取消' : 'CANCEL'}</button>
+                <div style="font-size:24px;font-weight:900;color:#f59e0b;flex-shrink:0">VS</div>
+                <div style="flex:1;text-align:center">
+                    <div style="font-size:10px;color:${MAP_BATTLE_CFG.COLORS.red.main};margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">${isZh ? '右方' : 'RIGHT'}</div>
+                    <div class="vs-modal-search-wrap" style="position:relative">
+                        <input id="vsSearchR" type="text" placeholder="${isZh ? '搜索国家...' : 'Search...'}" style="width:100%;padding:6px 10px;background:rgba(255,255,255,0.05);border:1px solid rgba(240,96,96,0.3);border-radius:8px;color:#e2e8f0;font-size:12px;outline:none;">
+                        <div id="vsDropR" style="display:none;position:absolute;top:100%;left:0;right:0;background:rgba(10,14,23,0.95);border:1px solid rgba(255,255,255,0.08);border-radius:8px;max-height:160px;overflow-y:auto;z-index:10;margin-top:2px;"></div>
+                    </div>
+                    <div id="vsSelectedR" style="display:none;font-size:14px;font-weight:700;cursor:pointer;padding:6px;"></div>
+                </div>
+            </div>
+            <div id="vsModalPreview" style="font-size:10px;color:#64748b;margin:8px 0;min-height:18px;text-align:center;"></div>
+            <div style="text-align:center;margin-top:8px">
+                <button class="vs-modal-go" id="vsModalGo" disabled style="padding:8px 32px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#0a0e17;font-weight:700;border:none;border-radius:8px;cursor:pointer;font-size:13px;opacity:0.4;transition:opacity 0.3s">${isZh ? '开战' : 'START BATTLE'}</button>
+                <button id="vsModalClose" style="margin-left:8px;padding:8px 16px;background:none;color:#64748b;border:1px solid rgba(255,255,255,0.1);border-radius:8px;cursor:pointer;font-size:12px">${isZh ? '取消' : 'Cancel'}</button>
             </div>
         `;
         document.body.appendChild(modal);
@@ -962,72 +756,56 @@ function showVsModal() {
                 launchMapBattle(vsModalCountries[0], vsModalCountries[1]);
             }
         });
-        setupVsSearch('vsSearchLeft', 'vsDropLeft', 'vsSelectedLeft', 0);
-        setupVsSearch('vsSearchRight', 'vsDropRight', 'vsSelectedRight', 1);
+        document.getElementById('vsModalClose').addEventListener('click', closeVsModal);
+        setupVsSearch('vsSearchL', 'vsDropL', 'vsSelectedL', 0);
+        setupVsSearch('vsSearchR', 'vsDropR', 'vsSelectedR', 1);
     }
     modal.style.display = 'block';
     vsModalCountries = [null, null];
     vsModalSlot = 0;
     vsModalSelecting = true;
-    ['Left', 'Right'].forEach(side => {
-        const input = document.getElementById('vsSearch' + side);
-        const sel = document.getElementById('vsSelected' + side);
-        if (input) { input.style.display = ''; input.value = ''; }
-        if (sel) sel.style.display = 'none';
+
+    // Reset inputs
+    ['vsSearchL', 'vsSearchR'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.style.display = ''; el.value = ''; }
     });
+    ['vsSelectedL', 'vsSelectedR'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+    ['vsDropL', 'vsDropR'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+
+    const yearEl = document.getElementById('vsModalYear');
+    if (yearEl && typeof yearLabel !== 'undefined') {
+        yearEl.textContent = yearLabel(TIME_PERIODS[currentIndex]);
+    }
     updateVsModal();
 }
-
-let vsModalCountries = [null, null];
-let vsModalSlot = 0;
-let vsModalSelecting = false;
 
 function vsModalPickCountry(iso) {
     if (!vsModalSelecting) return;
     vsModalCountries[vsModalSlot] = iso;
-    const side = vsModalSlot === 0 ? 'Left' : 'Right';
-    const sel = document.getElementById('vsSelected' + side);
+    const side = vsModalSlot === 0 ? 'L' : 'R';
     const input = document.getElementById('vsSearch' + side);
-    const drop = document.getElementById('vsDrop' + side);
-    if (sel && input) {
+    const sel = document.getElementById('vsSelected' + side);
+    if (input) input.style.display = 'none';
+    if (sel) {
         sel.textContent = typeof getLocalName !== 'undefined' ? getLocalName(iso) : iso;
         sel.style.display = 'block';
-        sel.style.color = vsModalSlot === 0 ? '#4f8ff7' : '#f06060';
-        const slot = vsModalSlot;
-        sel.onclick = () => { vsModalCountries[slot] = null; sel.style.display = 'none'; input.style.display = ''; input.value = ''; updateVsModal(); };
-        input.style.display = 'none';
-        if (drop) drop.style.display = 'none';
+        sel.style.color = vsModalSlot === 0 ? MAP_BATTLE_CFG.COLORS.blue.main : MAP_BATTLE_CFG.COLORS.red.main;
+        sel.onclick = () => {
+            vsModalCountries[vsModalSlot === 0 ? 0 : 1] = null;
+            sel.style.display = 'none';
+            if (input) { input.style.display = ''; input.value = ''; }
+            updateVsModal();
+        };
     }
     vsModalSlot = vsModalSlot === 0 ? 1 : 0;
     updateVsModal();
-}
-
-function updateVsModal() {
-    [0, 1].forEach(idx => {
-        const side = idx === 0 ? 'Left' : 'Right';
-        const sel = document.getElementById('vsSelected' + side);
-        const input = document.getElementById('vsSearch' + side);
-        if (sel && input && vsModalCountries[idx]) {
-            sel.textContent = typeof getLocalName !== 'undefined' ? getLocalName(vsModalCountries[idx]) : vsModalCountries[idx];
-            sel.style.display = 'block';
-            sel.style.color = idx === 0 ? '#4f8ff7' : '#f06060';
-            input.style.display = 'none';
-        }
-    });
-    const yearEl = document.getElementById('vsModalYear');
-    if (yearEl) yearEl.textContent = yearLabel(TIME_PERIODS[currentIndex]);
-    const goBtn = document.getElementById('vsModalGo');
-    if (goBtn) goBtn.disabled = !(vsModalCountries[0] && vsModalCountries[1]);
-    
-    const preview = document.getElementById('vsModalPreview');
-    if (preview && vsModalCountries[0] && vsModalCountries[1]) {
-        const fmtPop = typeof formatPopShort !== 'undefined' ? formatPopShort : n => n.toLocaleString();
-        const pL = currentPopData[vsModalCountries[0]] || 0;
-        const pR = currentPopData[vsModalCountries[1]] || 0;
-        const nL = currentNpiData[vsModalCountries[0]] || 0;
-        const nR = currentNpiData[vsModalCountries[1]] || 0;
-        preview.innerHTML = `<span style="color:#4f8ff7">${fmtPop(pL)}</span> pop vs <span style="color:#f06060">${fmtPop(pR)}</span> · <span style="color:#4f8ff7">${nL.toFixed(1)}%</span> str vs <span style="color:#f06060">${nR.toFixed(1)}%</span>`;
-    } else if (preview) preview.innerHTML = '';
 }
 
 function closeVsModal() {
@@ -1036,16 +814,40 @@ function closeVsModal() {
     vsModalSelecting = false;
 }
 
+function updateVsModal() {
+    const goBtn = document.getElementById('vsModalGo');
+    const ready = vsModalCountries[0] && vsModalCountries[1];
+    if (goBtn) {
+        goBtn.disabled = !ready;
+        goBtn.style.opacity = ready ? '1' : '0.4';
+    }
+
+    const preview = document.getElementById('vsModalPreview');
+    if (preview && vsModalCountries[0] && vsModalCountries[1]) {
+        const fmtPop = typeof formatPopShort !== 'undefined' ? formatPopShort : n => n.toLocaleString();
+        const pL = currentPopData[vsModalCountries[0]] || 0;
+        const pR = currentPopData[vsModalCountries[1]] || 0;
+        const nL = currentNpiData[vsModalCountries[0]] || 0;
+        const nR = currentNpiData[vsModalCountries[1]] || 0;
+        preview.innerHTML = `<span style="color:${MAP_BATTLE_CFG.COLORS.blue.main}">${fmtPop(pL)}</span> pop vs <span style="color:${MAP_BATTLE_CFG.COLORS.red.main}">${fmtPop(pR)}</span> · <span style="color:${MAP_BATTLE_CFG.COLORS.blue.main}">${nL.toFixed(1)}%</span> str vs <span style="color:${MAP_BATTLE_CFG.COLORS.red.main}">${nR.toFixed(1)}%</span>`;
+    } else if (preview) {
+        preview.innerHTML = '';
+    }
+}
+
 function launchMapBattle(isoL, isoR) {
-    document.getElementById('comparePanel').style.display = 'none';
-    compareMode = false;
+    // Close compare panel if open
+    const cp = document.getElementById('comparePanel');
+    if (cp) cp.style.display = 'none';
+    if (typeof compareMode !== 'undefined') compareMode = false;
+
     const year = TIME_PERIODS[currentIndex];
     const data = {
         left: { pop: currentPopData[isoL] || 0, gdp: currentGdpData[isoL] || 0, npi: currentNpiData[isoL] || 0 },
         right: { pop: currentPopData[isoR] || 0, gdp: currentGdpData[isoR] || 0, npi: currentNpiData[isoR] || 0 }
     };
     if (activeMapBattle) activeMapBattle.stop();
-    activeMapBattle = new BattleArena(isoL, isoR, year, data);
+    activeMapBattle = new MapBattle(isoL, isoR, year, data);
     activeMapBattle.start((winner, ratioL, ratioR) => { activeMapBattle = null; });
 }
 
@@ -1077,17 +879,19 @@ function setupVsSearch(inputId, dropId, selectedId, slotIdx) {
         drop.innerHTML = matches.map(c => {
             const name = typeof currentLang !== 'undefined' && currentLang === 'zh' ? c.cn : c.en;
             const popStr = typeof formatPopShort !== 'undefined' ? formatPopShort(c.pop) : c.pop;
-            return `<div class="vs-drop-item" data-iso="${c.iso}"><span>${name}</span><span style="color:#475569;font-size:10px">${popStr}</span></div>`;
+            return `<div class="vs-drop-item" data-iso="${c.iso}" style="padding:6px 10px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.04)"><span style="color:#e2e8f0;font-size:12px">${name}</span><span style="color:#475569;font-size:10px">${popStr}</span></div>`;
         }).join('');
         drop.style.display = 'block';
         drop.querySelectorAll('.vs-drop-item').forEach(item => {
+            item.addEventListener('mouseenter', () => item.style.background = 'rgba(255,255,255,0.05)');
+            item.addEventListener('mouseleave', () => item.style.background = 'none');
             item.addEventListener('click', () => {
                 vsModalCountries[slotIdx] = item.dataset.iso;
                 input.style.display = 'none';
                 const sel = document.getElementById(selectedId);
                 sel.textContent = typeof getLocalName !== 'undefined' ? getLocalName(item.dataset.iso) : item.dataset.iso;
                 sel.style.display = 'block';
-                sel.style.color = slotIdx === 0 ? '#4f8ff7' : '#f06060';
+                sel.style.color = slotIdx === 0 ? MAP_BATTLE_CFG.COLORS.blue.main : MAP_BATTLE_CFG.COLORS.red.main;
                 sel.onclick = () => { vsModalCountries[slotIdx] = null; sel.style.display = 'none'; input.style.display = ''; input.value = ''; updateVsModal(); };
                 drop.style.display = 'none';
                 updateVsModal();
