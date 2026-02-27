@@ -1001,57 +1001,15 @@ let vsCountries = [null, null]; // [left, right] ISO codes
 })();
 
 document.getElementById('compareBtn').addEventListener('click', () => {
-    // New: open VS modal for map battle
     if (typeof showVsModal === 'function') {
         showVsModal();
-    } else {
-        // Fallback to old panel
-        compareMode = !compareMode;
-        document.getElementById('compareBtn').classList.toggle('active', compareMode);
-        if (!compareMode) {
-            document.getElementById('comparePanel').style.display = 'none';
-            vsCountries = [null, null]; vsSlot = 0;
-        } else {
-            resetVsPanel();
-            document.getElementById('comparePanel').style.display = 'block';
-        }
     }
 });
 
-document.getElementById('compareClose').addEventListener('click', () => {
-    compareMode = false;
-    vsCountries = [null, null]; vsSlot = 0;
-    document.getElementById('compareBtn').classList.remove('active');
-    document.getElementById('comparePanel').style.display = 'none';
-    if (typeof stopBattleSimulation === 'function') stopBattleSimulation();
-});
-
-document.getElementById('battleBtn').addEventListener('click', () => {
-    if (vsCountries[0] && vsCountries[1]) {
-        document.getElementById('battleWrap').style.display = 'block';
-        document.getElementById('compareChartWrap').style.display = 'none';
-        startBattleSimulation(vsCountries[0], vsCountries[1]);
-    }
-});
+// Old compareClose and battleBtn removed — using map-click battle now
 
 function resetVsPanel() {
-    vsCountries = [null, null]; vsSlot = 0;
-    document.getElementById('vsLeftName').style.display = 'none';
-    document.getElementById('vsLeftVal').style.display = 'none';
-    document.getElementById('vsLeftHint').style.display = '';
-    document.getElementById('vsLeftHint').textContent = currentLang === 'zh' ? '点击选择国家' : 'Click a country';
-    document.getElementById('vsRightName').style.display = 'none';
-    document.getElementById('vsRightVal').style.display = 'none';
-    document.getElementById('vsRightHint').style.display = '';
-    document.getElementById('vsRightHint').textContent = currentLang === 'zh' ? '点击选择国家' : 'Click a country';
-    document.getElementById('vsStats').innerHTML = '';
-    document.getElementById('vsScore').style.display = 'none';
-    document.getElementById('compareChartWrap').style.display = 'none';
-    document.getElementById('battleWrap').style.display = 'none';
-    document.getElementById('battleBtn').style.display = 'none';
-    if (typeof stopBattleSimulation === 'function') stopBattleSimulation();
-    document.getElementById('compareHint').textContent = currentLang === 'zh' 
-        ? '点击地图选择两个国家进行对比' : 'Click two countries on the map to compare';
+    // Legacy stub — old panel removed in v144
 }
 
 function addCompareCountry(iso) {
