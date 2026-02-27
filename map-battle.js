@@ -1141,6 +1141,17 @@ class MapBattle {
                 return `<div style="opacity:${op};transition:opacity 0.4s">${m}</div>`;
             }).join('');
         }
+        // Spawn event bubble on map
+        if (!this._eventBubbles) this._eventBubbles = [];
+        const pxL = this.centroidL ? map.latLngToContainerPoint(this.centroidL) : {x:200,y:300};
+        const pxR = this.centroidR ? map.latLngToContainerPoint(this.centroidR) : {x:600,y:300};
+        this._eventBubbles.push({
+            x: (pxL.x + pxR.x) / 2 + (Math.random()-0.5)*60,
+            y: (pxL.y + pxR.y) / 2 - 40,
+            text: msg.length > 30 ? msg.substring(0, 28) + '...' : msg,
+            life: 0,
+            color: msg.includes('突破') || msg.includes('breach') || msg.includes('BREACH') ? '#ef4444' : '#f59e0b',
+        });
     }
 
     // ===== RENDER (Canvas overlay) =====
@@ -1148,309 +1159,308 @@ class MapBattle {
         if (!this.ctx) return;
         const ctx = this.ctx;
         ctx.clearRect(0, 0, this.cW, this.cH);
-
         if (this.phase === 'done') return;
 
         const pxL = this.centroidL ? map.latLngToContainerPoint(this.centroidL) : {x:100,y:300};
         const pxR = this.centroidR ? map.latLngToContainerPoint(this.centroidR) : {x:700,y:300};
-        const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
-        const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
-        const dt = 16; // approx frame time for particle updates
+        const pulse = 0.6 + 0.4 * Math.sin(this.borderFlashPhase * 4);
+        const isCollapse = this.phase === 'collapse';
+        const isBattle = this.phase === 'attrition' || isCollapse;
+        const outbreakProg = this.phase === 'outbreak' ? this.elapsed / MAP_BATTLE_CFG.PHASE_MS.outbreak : 1;
 
-        // ===== PER-FRONT RENDERING =====
-        if (this.phase === 'attrition' || this.phase === 'collapse' || this.phase === 'outbreak') {
-            const isCollapse = this.phase === 'collapse';
-            const isBattle = this.phase === 'attrition' || isCollapse;
-            const pulse = 0.6 + 0.4 * Math.sin(this.borderFlashPhase * 4);
-            const outbreakProg = this.phase === 'outbreak' ? this.elapsed / MAP_BATTLE_CFG.PHASE_MS.outbreak : 1;
+        // ===== SPAWN ARMY STREAM PARTICLES =====
+        // Continuously spawn small arrow particles from each country toward frontline
+        if (isBattle || this.phase === 'outbreak') {
+            for (const front of this.fronts) {
+                const pos = this._getFrontPixelPos(front);
+                const oLx = pxL.x + pos.offsetX, oLy = pxL.y + pos.offsetY;
+                const oRx = pxR.x + pos.offsetX, oRy = pxR.y + pos.offsetY;
 
-            // --- Smoke (behind everything) ---
-            for (let s of this.smokeParticles) {
-                s.x += s.vx; s.y += s.vy;
-                s.life += 0.016;
-                const t = s.life / s.maxLife;
-                ctx.beginPath();
-                ctx.arc(s.x, s.y, s.size * (1 + t*0.5), 0, Math.PI*2);
-                ctx.fillStyle = `rgba(40,40,40,${Math.max(0, 0.12*(1-t))})`;
-                ctx.fill();
+                // Spawn rate proportional to troop count (more troops = denser stream)
+                const rateL = Math.max(1, Math.ceil(front.troopsL / front.troopsLStart * 3));
+                const rateR = Math.max(1, Math.ceil(front.troopsR / front.troopsRStart * 3));
+
+                // Left army stream → toward frontline
+                if (front.troopsL > 100) {
+                    for (let i = 0; i < rateL; i++) {
+                        if (this.fireParticles.length < 600) {
+                            const spread = 8 + Math.random() * 12;
+                            this.fireParticles.push({
+                                x: oLx + (Math.random()-0.5)*spread,
+                                y: oLy + (Math.random()-0.5)*spread,
+                                tx: pos.fx, ty: pos.fy, // target
+                                side: 'left',
+                                type: 'army', // distinguish from fire
+                                speed: 1.5 + Math.random()*1.5,
+                                size: 2 + Math.random()*1.5,
+                                life: 0, maxLife: 3,
+                                alive: true,
+                            });
+                        }
+                    }
+                }
+                // Right army stream
+                if (front.troopsR > 100) {
+                    for (let i = 0; i < rateR; i++) {
+                        if (this.fireParticles.length < 600) {
+                            const spread = 8 + Math.random() * 12;
+                            this.fireParticles.push({
+                                x: oRx + (Math.random()-0.5)*spread,
+                                y: oRy + (Math.random()-0.5)*spread,
+                                tx: pos.fx, ty: pos.fy,
+                                side: 'right',
+                                type: 'army',
+                                speed: 1.5 + Math.random()*1.5,
+                                size: 2 + Math.random()*1.5,
+                                life: 0, maxLife: 3,
+                                alive: true,
+                            });
+                        }
+                    }
+                }
+
+                // Breached front: spawn fire on enemy territory
+                if (isBattle && (front.statusL === 'breached' || front.statusR === 'breached')) {
+                    const loserPx = front.statusL === 'breached' ? pxL : pxR;
+                    if (Math.random() < 0.12) {
+                        this.smokeParticles.push({
+                            x: loserPx.x + (Math.random()-0.5)*100,
+                            y: loserPx.y + (Math.random()-0.5)*60,
+                            vx: (Math.random()-0.5)*0.3,
+                            vy: -0.5 - Math.random()*1,
+                            size: 3 + Math.random()*4,
+                            life: 0, maxLife: 0.8 + Math.random()*0.4,
+                            type: 'fire',
+                        });
+                    }
+                    if (Math.random() < 0.04) {
+                        this.smokeParticles.push({
+                            x: loserPx.x + (Math.random()-0.5)*120,
+                            y: loserPx.y + (Math.random()-0.5)*80,
+                            vx: (Math.random()-0.5)*0.2,
+                            vy: -0.2 - Math.random()*0.3,
+                            size: 10 + Math.random()*15,
+                            life: 0, maxLife: 2 + Math.random(),
+                            type: 'smoke',
+                        });
+                    }
+                }
             }
-            this.smokeParticles = this.smokeParticles.filter(s => s.life < s.maxLife);
+        }
 
-            // --- Fire particles (on invaded territory) ---
-            for (let f of this.fireParticles) {
-                f.x += f.vx; f.y += f.vy;
-                f.life += 0.016;
-                const t = f.life / f.maxLife;
+        // ===== UPDATE & RENDER SMOKE/FIRE ON TERRITORY =====
+        for (let s of this.smokeParticles) {
+            s.x += s.vx; s.y += s.vy;
+            s.life += 0.016;
+            const t = s.life / s.maxLife;
+            if (s.type === 'fire') {
                 const alpha = Math.max(0, 1 - t*t);
-                const size = f.size * (1 - t*0.5);
                 const r = 245, g = Math.round(158 - t*100), b = Math.round(11 + t*50);
                 ctx.beginPath();
-                ctx.arc(f.x, f.y, size, 0, Math.PI*2);
+                ctx.arc(s.x, s.y, s.size * (1-t*0.3), 0, Math.PI*2);
                 ctx.fillStyle = `rgba(${r},${g},${b},${alpha * 0.7})`;
                 ctx.fill();
                 ctx.beginPath();
-                ctx.arc(f.x, f.y, size*0.3, 0, Math.PI*2);
+                ctx.arc(s.x, s.y, s.size*0.3, 0, Math.PI*2);
                 ctx.fillStyle = `rgba(255,255,200,${alpha * 0.5})`;
                 ctx.fill();
+            } else {
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.size * (1+t*0.5), 0, Math.PI*2);
+                ctx.fillStyle = `rgba(40,40,40,${Math.max(0, 0.1*(1-t))})`;
+                ctx.fill();
             }
-            this.fireParticles = this.fireParticles.filter(f => f.life < f.maxLife);
+        }
+        this.smokeParticles = this.smokeParticles.filter(s => s.life < s.maxLife);
 
-            // --- Each front ---
+        // ===== UPDATE & RENDER ARMY STREAM PARTICLES =====
+        const colBlue = MAP_BATTLE_CFG.COLORS.blue;
+        const colRed = MAP_BATTLE_CFG.COLORS.red;
+
+        for (let p of this.fireParticles) {
+            if (p.type !== 'army') continue;
+            p.life += 0.016;
+
+            // Move toward target
+            const dx = p.tx - p.x, dy = p.ty - p.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+
+            if (dist < 12) {
+                // Reached frontline → collision!
+                p.alive = false;
+                // Spawn explosion spark
+                if (Math.random() < 0.5) {
+                    this.floatingNums.push({
+                        x: p.x + (Math.random()-0.5)*8,
+                        y: p.y + (Math.random()-0.5)*8,
+                        type: 'spark',
+                        vx: (Math.random()-0.5)*3,
+                        vy: (Math.random()-0.5)*3 - 1,
+                        size: 1 + Math.random()*2,
+                        life: 0, alpha: 1,
+                        color: '#f59e0b',
+                    });
+                }
+            } else {
+                // Advance with slight wobble
+                const nx = dx/dist, ny = dy/dist;
+                const wobble = Math.sin(p.life*6 + p.x*0.1) * 0.3;
+                p.x += (nx + (-ny)*wobble) * p.speed;
+                p.y += (ny + nx*wobble) * p.speed;
+            }
+
+            if (p.life > p.maxLife) p.alive = false;
+
+            if (!p.alive) continue;
+
+            // Draw as small arrow/triangle pointing toward target
+            const col = p.side === 'left' ? colBlue : colRed;
+            const angle = Math.atan2(dy, dx);
+            const sz = p.size;
+
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(angle);
+            ctx.globalAlpha = 0.7;
+
+            // Arrow body
+            ctx.beginPath();
+            ctx.moveTo(sz*1.5, 0);
+            ctx.lineTo(-sz, -sz*0.7);
+            ctx.lineTo(-sz*0.3, 0);
+            ctx.lineTo(-sz, sz*0.7);
+            ctx.closePath();
+            ctx.fillStyle = col.main;
+            ctx.fill();
+
+            // Glow
+            ctx.globalAlpha = 0.15;
+            ctx.beginPath();
+            ctx.arc(0, 0, sz*2.5, 0, Math.PI*2);
+            ctx.fillStyle = col.glow;
+            ctx.fill();
+
+            ctx.restore();
+        }
+        this.fireParticles = this.fireParticles.filter(p => p.type !== 'army' || p.alive);
+
+        // ===== COLLISION ZONE EFFECTS =====
+        if (isBattle) {
             for (const front of this.fronts) {
                 const pos = this._getFrontPixelPos(front);
-                const frontName = this.isZh ? front.nameZh : front.nameEn;
 
-                // Axis origin points for this front
-                const oLx = pxL.x + pos.offsetX, oLy = pxL.y + pos.offsetY;
-                const oRx = pxR.x + pos.offsetX, oRy = pxR.y + pos.offsetY;
-                const dx = oRx - oLx, dy = oRy - oLy;
+                // Explosion glow at frontline
+                const glowSize = isCollapse ? 35 : 22;
+                const grad = ctx.createRadialGradient(pos.fx, pos.fy, 0, pos.fx, pos.fy, glowSize);
+                grad.addColorStop(0, `rgba(245,158,11,${(isCollapse ? 0.35 : 0.2) * pulse})`);
+                grad.addColorStop(0.5, `rgba(239,68,68,${0.08 * pulse})`);
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(pos.fx, pos.fy, glowSize, 0, Math.PI*2);
+                ctx.fill();
 
-                // During outbreak: armies march toward center (0->0.5 progress)
-                // During battle: armies are at their position, frontline moves
-                const marchL = this.phase === 'outbreak' ? outbreakProg * 0.35 : 0.35 + (0.5 - front.frontline) * 0.3;
-                const marchR = this.phase === 'outbreak' ? (1 - outbreakProg * 0.35) : 0.65 - (front.frontline - 0.5) * 0.3;
+                // Crossed swords icon
+                this._renderCrossedSwords(ctx, pos.fx, pos.fy, pulse, isCollapse);
 
-                // Army group positions
-                const aLx = oLx + dx * Math.min(marchL, front.frontline - 0.03);
-                const aLy = oLy + dy * Math.min(marchL, front.frontline - 0.03);
-                const aRx = oLx + dx * Math.max(marchR, front.frontline + 0.03);
-                const aRy = oLy + dy * Math.max(marchR, front.frontline + 0.03);
-
-                // --- March trail (faint line showing path) ---
+                // Front label
                 ctx.save();
-                ctx.beginPath();
-                ctx.moveTo(oLx, oLy); ctx.lineTo(aLx, aLy);
-                ctx.strokeStyle = `rgba(79,143,247,0.12)`;
-                ctx.lineWidth = 1.5; ctx.setLineDash([3,4]); ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(oRx, oRy); ctx.lineTo(aRx, aRy);
-                ctx.strokeStyle = `rgba(240,96,96,0.12)`;
-                ctx.stroke();
-                ctx.setLineDash([]); ctx.restore();
-
-                // --- Army group markers ---
-                this._renderArmyMarker(ctx, aLx, aLy, front.troopsL, 'left', front.statusL === 'breached', frontName);
-                this._renderArmyMarker(ctx, aRx, aRy, front.troopsR, 'right', front.statusR === 'breached', null);
-
-                // --- Crossed swords at frontline (combat indicator) ---
-                if (isBattle && front.cpL > 1 && front.cpR > 1) {
-                    this._renderCombatIcon(ctx, pos.fx, pos.fy, pulse, isCollapse);
-                }
-
-                // --- If breached: winning army pushes past, fire on enemy territory ---
-                if (isBattle && (front.statusL === 'breached' || front.statusR === 'breached')) {
-                    // Spawn fire on the losing side's territory
-                    const loserCentroid = front.statusL === 'breached' ? pxL : pxR;
-                    if (Math.random() < 0.15) {
-                        this.fireParticles.push({
-                            x: loserCentroid.x + pos.offsetX * 0.5 + (Math.random()-0.5)*80,
-                            y: loserCentroid.y + pos.offsetY * 0.5 + (Math.random()-0.5)*40,
-                            vx: (Math.random()-0.5)*0.3,
-                            vy: -0.8 - Math.random()*1.2,
-                            size: 3 + Math.random()*5,
-                            life: 0, maxLife: 1.0 + Math.random()*0.5,
-                        });
-                    }
-                    // Smoke on territory
-                    if (Math.random() < 0.06) {
-                        this.smokeParticles.push({
-                            x: loserCentroid.x + pos.offsetX * 0.3 + (Math.random()-0.5)*100,
-                            y: loserCentroid.y + pos.offsetY * 0.3 + (Math.random()-0.5)*60,
-                            vx: (Math.random()-0.5)*0.2,
-                            vy: -0.2 - Math.random()*0.4,
-                            size: 10 + Math.random()*15,
-                            life: 0, maxLife: 2.5 + Math.random(),
-                        });
-                    }
-                }
+                ctx.font = '8px Inter,system-ui,sans-serif';
+                ctx.fillStyle = `rgba(245,158,11,${0.4})`;
+                ctx.textAlign = 'center';
+                ctx.fillText(this.isZh ? front.nameZh : front.nameEn, pos.fx, pos.fy - 18);
+                ctx.restore();
             }
         }
 
-        // ===== TOTAL TROOP SUMMARY ON TERRITORIES =====
-        if (this.phase !== 'done') {
-            this._renderTroopSummary(ctx, pxL, 'left');
-            this._renderTroopSummary(ctx, pxR, 'right');
-        }
-
-        // ===== FLOATING DAMAGE NUMBERS =====
-        for (let d of this.floatingNums) {
-            d.y -= 0.8;
-            d.life += 0.016;
-            d.alpha = Math.max(0, 1 - d.life / 1.5);
-            ctx.save();
-            ctx.globalAlpha = d.alpha;
-            ctx.font = 'bold 12px Inter,system-ui,sans-serif';
-            ctx.textAlign = 'center';
-            ctx.shadowColor = 'rgba(0,0,0,0.8)';
-            ctx.shadowBlur = 4;
-            ctx.fillStyle = d.color;
-            ctx.fillText(d.text, d.x, d.y);
-            ctx.shadowBlur = 0;
-            ctx.restore();
+        // ===== EXPLOSION SPARKS =====
+        for (let s of this.floatingNums) {
+            if (s.type === 'spark') {
+                s.x += s.vx; s.y += s.vy;
+                s.vy += 0.08;
+                s.life += 0.02;
+                s.alpha = Math.max(0, 1 - s.life);
+                ctx.globalAlpha = s.alpha;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.size, 0, Math.PI*2);
+                ctx.fillStyle = s.color;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            } else {
+                // Damage numbers
+                s.y -= 0.8;
+                s.life += 0.016;
+                s.alpha = Math.max(0, 1 - s.life / 1.5);
+                ctx.save();
+                ctx.globalAlpha = s.alpha;
+                ctx.font = 'bold 12px Inter,system-ui,sans-serif';
+                ctx.textAlign = 'center';
+                ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                ctx.shadowBlur = 4;
+                ctx.fillStyle = s.color;
+                ctx.fillText(s.text, s.x, s.y);
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            }
         }
         this.floatingNums = this.floatingNums.filter(d => d.alpha > 0.01);
 
+        // ===== EVENT BUBBLES =====
+        // Dynamic popups for major events
+        for (let ev of (this._eventBubbles || [])) {
+            ev.life += 0.012;
+            ev.y -= 0.3;
+            const alpha = Math.max(0, 1 - ev.life / 2);
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.font = 'bold 11px Inter,system-ui,sans-serif';
+            ctx.textAlign = 'center';
+            // Background pill
+            const tw = ctx.measureText(ev.text).width + 16;
+            ctx.fillStyle = 'rgba(8,12,20,0.8)';
+            ctx.beginPath();
+            ctx.roundRect(ev.x - tw/2, ev.y - 8, tw, 18, 6);
+            ctx.fill();
+            ctx.strokeStyle = ev.color || '#f59e0b';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.fillStyle = ev.color || '#f59e0b';
+            ctx.fillText(ev.text, ev.x, ev.y + 5);
+            ctx.restore();
+        }
+        if (this._eventBubbles) {
+            this._eventBubbles = this._eventBubbles.filter(e => e.life < 2);
+        }
+
         // ===== COLLAPSE VIGNETTE =====
-        if (this.phase === 'collapse') {
-            const collapseProgress = this.elapsed / MAP_BATTLE_CFG.PHASE_MS.collapse;
-            const vignetteAlpha = collapseProgress * 0.12;
+        if (isCollapse) {
+            const cp = this.elapsed / MAP_BATTLE_CFG.PHASE_MS.collapse;
             const grad = ctx.createRadialGradient(this.cW/2, this.cH/2, this.cW*0.3, this.cW/2, this.cH/2, this.cW*0.7);
             grad.addColorStop(0, 'rgba(0,0,0,0)');
-            grad.addColorStop(1, `rgba(239,68,68,${vignetteAlpha})`);
+            grad.addColorStop(1, `rgba(239,68,68,${cp*0.15})`);
             ctx.fillStyle = grad;
             ctx.fillRect(0, 0, this.cW, this.cH);
         }
     }
 
-    // ===== ARMY GROUP MARKER =====
-    _renderArmyMarker(ctx, x, y, troops, side, isBroken, label) {
-        const col = side === 'left' ? MAP_BATTLE_CFG.COLORS.blue : MAP_BATTLE_CFG.COLORS.red;
-        const borderCol = isBroken ? '#ef4444' : col.main;
-
+    // ===== CROSSED SWORDS (compact) =====
+    _renderCrossedSwords(ctx, x, y, pulse, intense) {
         ctx.save();
-        // Shield shape background
-        const w = 44, h = 22;
-        ctx.fillStyle = 'rgba(8,12,20,0.8)';
-        ctx.strokeStyle = borderCol;
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.roundRect(x - w/2, y - h/2, w, h, 4);
-        ctx.fill();
-        ctx.stroke();
-
-        // Troop count
-        ctx.font = 'bold 10px Inter,system-ui,sans-serif';
-        ctx.fillStyle = isBroken ? '#ef4444' : col.light;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(this._fmtTroops(troops), x, y);
-
-        // Front label (only on left side to avoid clutter)
-        if (label) {
-            ctx.font = '7px Inter,system-ui,sans-serif';
-            ctx.fillStyle = 'rgba(148,163,184,0.6)';
-            ctx.fillText(label, x, y - h/2 - 5);
-        }
-
-        // Broken marker
-        if (isBroken) {
-            ctx.font = 'bold 8px Inter,system-ui,sans-serif';
-            ctx.fillStyle = '#ef4444';
-            ctx.fillText(this.isZh ? '溃败' : 'ROUT', x, y + h/2 + 7);
-        }
-
-        ctx.restore();
-    }
-
-    // ===== CROSSED SWORDS COMBAT ICON =====
-    _renderCombatIcon(ctx, x, y, pulse, isCollapse) {
-        ctx.save();
-        const size = isCollapse ? 14 : 11;
-        const alpha = 0.6 + 0.4 * pulse;
-        const bounce = Math.sin(this.borderFlashPhase * 8) * 2;
-
-        // Glow behind
-        const grad = ctx.createRadialGradient(x, y + bounce, 0, x, y + bounce, size * 2);
-        grad.addColorStop(0, `rgba(245,158,11,${(isCollapse ? 0.3 : 0.15) * pulse})`);
-        grad.addColorStop(1, 'rgba(245,158,11,0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(x, y + bounce, size * 2, 0, Math.PI*2);
-        ctx.fill();
-
-        // Crossed swords: two lines forming an X
+        const sz = intense ? 10 : 7;
+        const bounce = Math.sin(this.borderFlashPhase * 8) * 1.5;
         ctx.translate(x, y + bounce);
-        ctx.globalAlpha = alpha;
-
-        // Sword 1 (\ direction)
+        ctx.globalAlpha = 0.5 + 0.3 * pulse;
         ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1.8;
         ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(-size, -size);
-        ctx.lineTo(size, size);
-        ctx.stroke();
-        // Hilt
-        ctx.beginPath();
-        ctx.moveTo(-size*0.3, size*0.3);
-        ctx.lineTo(size*0.3, -size*0.3);
-        ctx.stroke();
-
-        // Sword 2 (/ direction)
-        ctx.beginPath();
-        ctx.moveTo(size, -size);
-        ctx.lineTo(-size, size);
-        ctx.stroke();
-        // Hilt
-        ctx.beginPath();
-        ctx.moveTo(size*0.3, size*0.3);
-        ctx.lineTo(-size*0.3, -size*0.3);
-        ctx.stroke();
-
-        // Sparks at center (collision point)
-        if (Math.random() < 0.4) {
-            for (let i = 0; i < 3; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const dist = 3 + Math.random() * 6;
-                const sx = Math.cos(angle) * dist;
-                const sy = Math.sin(angle) * dist;
-                ctx.fillStyle = `rgba(255,220,100,${0.5 + Math.random()*0.5})`;
-                ctx.beginPath();
-                ctx.arc(sx, sy, 1 + Math.random(), 0, Math.PI*2);
-                ctx.fill();
-            }
-        }
-
-        ctx.restore();
-    }
-
-    // ===== TROOP SUMMARY OVERLAY ON COUNTRY =====
-    _renderTroopSummary(ctx, px, side) {
-        const troops = side === 'left' ? this.troopsL : this.troopsR;
-        const types = this.troopTypes;
-        const color = side === 'left' ? MAP_BATTLE_CFG.COLORS.blue : MAP_BATTLE_CFG.COLORS.red;
-        const hp = side === 'left' ? this.hpL / this.maxHpL : this.hpR / this.maxHpR;
-        const name = side === 'left' ? this.nameL : this.nameR;
-        const numFrontsActive = this.fronts.filter(f =>
-            side === 'left' ? f.statusL !== 'collapsed' : f.statusR !== 'collapsed'
-        ).length;
-
-        ctx.save();
-
-        // Compact card
-        const cardW = 100, cardH = 42;
-        const cx = px.x - cardW/2, cy = px.y - cardH/2;
-        ctx.fillStyle = 'rgba(8,12,20,0.7)';
-        ctx.strokeStyle = `rgba(${side==='left'?'79,143,247':'240,96,96'},0.25)`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(cx, cy, cardW, cardH, 6);
-        ctx.fill();
-        ctx.stroke();
-
-        // Total troops
-        ctx.font = 'bold 13px Inter,system-ui,sans-serif';
-        ctx.fillStyle = color.main;
-        ctx.textAlign = 'center';
-        ctx.fillText(this._fmtTroops(troops), px.x, cy + 15);
-
-        // Active fronts indicator
-        ctx.font = '9px Inter,system-ui,sans-serif';
-        ctx.fillStyle = '#64748b';
-        ctx.fillText(
-            (this.isZh ? `${numFrontsActive}路作战` : `${numFrontsActive} fronts`),
-            px.x, cy + 27
-        );
-
-        // Mini HP bar
-        const barY = cy + cardH - 6;
-        const barW = cardW - 10;
-        ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        ctx.fillRect(cx + 5, barY, barW, 3);
-        const hpColor = hp > 0.6 ? color.main : (hp > 0.3 ? '#f59e0b' : '#ef4444');
-        ctx.fillStyle = hpColor;
-        ctx.fillRect(cx + 5, barY, barW * Math.max(0, hp), 3);
-
+        // Sword 1
+        ctx.beginPath(); ctx.moveTo(-sz, -sz); ctx.lineTo(sz, sz); ctx.stroke();
+        // Sword 2
+        ctx.beginPath(); ctx.moveTo(sz, -sz); ctx.lineTo(-sz, sz); ctx.stroke();
+        // Hilts
+        ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(-sz*0.35, sz*0.35); ctx.lineTo(sz*0.35, -sz*0.35); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(sz*0.35, sz*0.35); ctx.lineTo(-sz*0.35, -sz*0.35); ctx.stroke();
         ctx.restore();
     }
 
