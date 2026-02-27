@@ -1,18 +1,30 @@
-// ===== MAP-EMBEDDED BATTLE SYSTEM v6.5 =====
-// 5-round polish: brighter particles, energy beams, shockwaves, HP transitions, premium victory
+// ===== CIVILIZATION WAR SYSTEM v1.0 =====
+// Three-phase: Outbreak → Attrition → Collapse
+// All combat happens ON the map. No screen changes.
+// 20-30s base duration with 2x/4x speed + skip support.
 
 const MAP_BATTLE_CFG = {
-    PHASE_MS: { setup: 1800, battle: 9000, victory: 4000 },
+    // Phase durations in ms (at 1x speed)
+    PHASE_MS: { outbreak: 2000, attrition: 18000, collapse: 6000 },
     COLORS: {
-        blue: { main: '#4f8ff7', dark: '#1e40af', light: '#93bbff', glow: 'rgba(79,143,247,0.6)', ultra: '#c4ddff' },
-        red: { main: '#f06060', dark: '#991b1b', light: '#ffa0a0', glow: 'rgba(240,96,96,0.6)', ultra: '#ffd0d0' },
+        blue: { main: '#4f8ff7', dark: '#1e40af', light: '#93bbff', glow: 'rgba(79,143,247,0.5)', ultra: '#c4ddff' },
+        red:  { main: '#f06060', dark: '#991b1b', light: '#ffa0a0', glow: 'rgba(240,96,96,0.5)', ultra: '#ffd0d0' },
         gold: '#f59e0b',
         victory: '#34d399',
+        collapse: '#ef4444',
+        warzone: 'rgba(245,158,11,0.12)',
     },
-    PARTICLE_SPAWN_RATE: 5,
-    COLLISION_ZONE: 40,
+    // Battle tick interval
+    TICK_INTERVAL: 300, // ms between combat ticks at 1x
+    // Random fluctuation range
+    FLUCTUATION: 0.05, // ±5%
+    // Collapse threshold
+    COLLAPSE_THRESHOLD: 0.30,
+    // Collapse acceleration multiplier
+    COLLAPSE_ACCEL: 2.5,
 };
 
+// ===== HELPER =====
 function getCountryCentroid(iso) {
     if (typeof geoLayer === 'undefined' || !geoLayer) return null;
     let found = null;
@@ -27,83 +39,130 @@ function getCountryCentroid(iso) {
     return found;
 }
 
-// ===== MAP BATTLE CLASS =====
+function getCountryLayers(iso) {
+    const layers = [];
+    if (typeof geoLayer === 'undefined' || !geoLayer) return layers;
+    geoLayer.eachLayer(layer => {
+        const props = layer.feature.properties;
+        let layerIso = props.ISO_A3;
+        if (layerIso === '-99' && typeof ISO_FIXES !== 'undefined')
+            layerIso = ISO_FIXES[props.NAME] || layerIso;
+        if (layerIso === iso) layers.push(layer);
+    });
+    return layers;
+}
+
+// ===== CIVILIZATION WAR CLASS =====
 class MapBattle {
     constructor(leftISO, rightISO, year, data) {
         this.leftISO = leftISO;
         this.rightISO = rightISO;
         this.year = year;
         this.data = data;
-        this.phase = 'setup';
+        this.phase = 'outbreak'; // outbreak -> attrition -> collapse -> done
         this.elapsed = 0;
         this.running = false;
         this.onComplete = null;
+        this.speed = 1; // 1x, 2x, 4x
 
         const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
         this.isZh = isZh;
         this.nameL = typeof getLocalName !== 'undefined' ? getLocalName(leftISO) : leftISO;
         this.nameR = typeof getLocalName !== 'undefined' ? getLocalName(rightISO) : rightISO;
 
+        // ===== COMBAT MODEL =====
         const L = data.left, R = data.right;
-        this.forceL = (L.npi || 0.1) * 60 + (L.gdp || 0) * 0.001 + Math.sqrt(L.pop || 0) * 0.0001;
-        this.forceR = (R.npi || 0.1) * 60 + (R.gdp || 0) * 0.001 + Math.sqrt(R.pop || 0) * 0.0001;
-        const total = this.forceL + this.forceR || 1;
-        this.ratioL = this.forceL / total;
-        this.ratioR = this.forceR / total;
-        this.winner = (this.ratioL + (Math.random() - 0.5) * 0.12) > 0.5 ? 'left' : 'right';
 
-        const mobilRate = year > 1900 ? 0.02 : (year > 1500 ? 0.03 : 0.05);
-        this.troopsL = Math.max(5000, Math.round((L.pop || 100000) * mobilRate));
-        this.troopsR = Math.max(5000, Math.round((R.pop || 100000) * mobilRate));
+        // National strength (NPI-based)
+        this.strengthL = (L.npi || 0.1);
+        this.strengthR = (R.npi || 0.1);
 
-        this.armiesL = this._createArmies('left');
-        this.armiesR = this._createArmies('right');
+        // Mobilization coefficient (era-dependent)
+        const mobilRate = year > 1900 ? 0.015 : (year > 1500 ? 0.025 : 0.04);
+        const mobilL = Math.sqrt((L.pop || 100000) * mobilRate) / 1000; // normalized
+        const mobilR = Math.sqrt((R.pop || 100000) * mobilRate) / 1000;
 
-        this.hpL = 100;
-        this.hpR = 100;
+        // Stability (starts at 100)
+        this.stabilityL = 100;
+        this.stabilityR = 100;
+
+        // Logistics coefficient (based on GDP/pop - richer = better logistics)
+        const gdppcL = (L.gdp || 1) / Math.max(1, L.pop || 1);
+        const gdppcR = (R.gdp || 1) / Math.max(1, R.pop || 1);
+        const logisticsL = Math.min(1.5, 0.5 + gdppcL * 100);
+        const logisticsR = Math.min(1.5, 0.5 + gdppcR * 100);
+
+        // Final combat power
+        // CP = Strength × Mobilization × (Stability/100) × Logistics
+        this.baseCpL = this.strengthL * mobilL * logisticsL;
+        this.baseCpR = this.strengthR * mobilR * logisticsR;
+
+        // Normalize to 100 scale
+        const maxCp = Math.max(this.baseCpL, this.baseCpR, 0.001);
+        this.cpL = (this.baseCpL / maxCp) * 100;
+        this.cpR = (this.baseCpR / maxCp) * 100;
+
+        // Starting HP (= combat power, decays during battle)
+        this.hpL = this.cpL;
+        this.hpR = this.cpR;
+        this.maxHpL = this.cpL;
+        this.maxHpR = this.cpR;
+
+        // Determine probable winner (with randomness)
+        const totalCp = this.cpL + this.cpR;
+        this.winChanceL = this.cpL / totalCp;
+        const roll = Math.random();
+        this.winner = (roll < this.winChanceL + (Math.random() - 0.5) * 0.1) ? 'left' : 'right';
+        this.loser = this.winner === 'left' ? 'right' : 'left';
+
+        // Frontline position (0 = at left country, 1 = at right country, 0.5 = center)
+        this.frontline = 0.5;
+        this.targetFrontline = 0.5;
+
+        // Collapse triggered?
+        this.collapseTriggered = false;
+        this.collapsingISO = null;
+
+        // War resources consumed
+        this.resourcesConsumed = 0;
+
+        // Pop loss tracking
+        this.popLossL = 0;
+        this.popLossR = 0;
+
+        // Tick accumulator
+        this.tickAccum = 0;
+
+        // Centroids
         this.centroidL = getCountryCentroid(leftISO);
         this.centroidR = getCountryCentroid(rightISO);
-        this.particles = [];
-        this.sparks = [];
-        this.shockwaves = [];
-        this.damageNums = [];
-        this.battleLog = [];
-        this.frontline = 0.5;
+
+        // Map state
         this.savedStyles = new Map();
         this.canvas = null;
         this.ctx = null;
         this.hud = null;
         this.lastTime = 0;
         this.animFrame = null;
-        this.hitFlash = 0; // screen flash on big hit
-        this.beamPhase = 0; // animated beam phase
-        this.lastHitTime = 0;
-        this.cumulativeDmgL = 0;
-        this.cumulativeDmgR = 0;
+
+        // Border flash state
+        this.borderFlashPhase = 0;
+
+        // Battle log
+        this.battleLog = [];
+
+        // Win probability history for chart
+        this.winProbHistory = [];
+
+        // Territory opacity state (for visual front movement)
+        this.territoryOpacityL = 0.5;
+        this.territoryOpacityR = 0.5;
+
+        // Era info for flavor text
+        this.era = year < 500 ? 'ancient' : (year < 1500 ? 'medieval' : 'modern');
     }
 
-    _createArmies(side) {
-        const yr = this.year;
-        const isAnc = yr < 500, isMed = yr >= 500 && yr < 1500;
-        const troops = side === 'left' ? this.troopsL : this.troopsR;
-        const types = isAnc ? [
-            { name: 'Infantry', zh: '步兵', ratio: 0.5 },
-            { name: 'Cavalry', zh: '骑兵', ratio: 0.25 },
-            { name: 'Archers', zh: '弓箭手', ratio: 0.25 },
-        ] : isMed ? [
-            { name: 'Men-at-Arms', zh: '重装步兵', ratio: 0.35 },
-            { name: 'Knights', zh: '骑士', ratio: 0.3 },
-            { name: 'Archers', zh: '弓箭手', ratio: 0.2 },
-            { name: 'Siege', zh: '攻城器', ratio: 0.15 },
-        ] : [
-            { name: 'Ground', zh: '陆军', ratio: 0.35 },
-            { name: 'Armored', zh: '装甲', ratio: 0.25 },
-            { name: 'Air Force', zh: '空军', ratio: 0.25 },
-            { name: 'Navy', zh: '海军', ratio: 0.15 },
-        ];
-        return types.map(t => ({ ...t, troops: Math.round(troops * t.ratio), casualties: 0 }));
-    }
-
+    // ===== START =====
     start(onComplete) {
         this.onComplete = onComplete;
         this.running = true;
@@ -111,6 +170,7 @@ class MapBattle {
         this._createCanvas();
         this._createHUD();
         this.lastTime = performance.now();
+        this._addLog(this.isZh ? '战争爆发！' : 'WAR BREAKS OUT!');
         this.animFrame = requestAnimationFrame(t => this._tick(t));
     }
 
@@ -120,32 +180,49 @@ class MapBattle {
         this._cleanup();
     }
 
+    skip() {
+        // Instant resolution
+        this.running = false;
+        if (this.animFrame) cancelAnimationFrame(this.animFrame);
+        this._resolveInstant();
+    }
+
+    setSpeed(s) {
+        this.speed = s;
+        this._updateSpeedButtons();
+    }
+
+    // ===== MAP SETUP =====
     _setupMap() {
         if (!this.centroidL || !this.centroidR) return;
         const bounds = L.latLngBounds([this.centroidL, this.centroidR]);
-        map.flyToBounds(bounds, { padding: [100, 100], duration: 1.2, maxZoom: 5 });
+        map.flyToBounds(bounds, { padding: [120, 120], duration: 1.0, maxZoom: 5 });
 
         const colL = MAP_BATTLE_CFG.COLORS.blue;
         const colR = MAP_BATTLE_CFG.COLORS.red;
+
         geoLayer.eachLayer(layer => {
             const props = layer.feature.properties;
             let iso = props.ISO_A3;
             if (iso === '-99' && typeof ISO_FIXES !== 'undefined')
                 iso = ISO_FIXES[props.NAME] || iso;
+
+            // Save original style
             this.savedStyles.set(layer, {
                 fillColor: layer.options.fillColor,
                 fillOpacity: layer.options.fillOpacity,
                 color: layer.options.color,
                 weight: layer.options.weight,
             });
+
             if (iso === this.leftISO) {
-                layer.setStyle({ fillColor: colL.main, fillOpacity: 0.5, color: colL.light, weight: 2.5 });
+                layer.setStyle({ fillColor: colL.main, fillOpacity: 0.45, color: colL.light, weight: 2.5 });
                 layer.bringToFront();
             } else if (iso === this.rightISO) {
-                layer.setStyle({ fillColor: colR.main, fillOpacity: 0.5, color: colR.light, weight: 2.5 });
+                layer.setStyle({ fillColor: colR.main, fillOpacity: 0.45, color: colR.light, weight: 2.5 });
                 layer.bringToFront();
             } else {
-                layer.setStyle({ fillOpacity: 0.04, color: 'rgba(255,255,255,0.02)', weight: 0.3 });
+                layer.setStyle({ fillOpacity: 0.03, color: 'rgba(255,255,255,0.02)', weight: 0.3 });
             }
         });
     }
@@ -167,25 +244,32 @@ class MapBattle {
         this.cH = container.offsetHeight;
     }
 
+    // ===== HUD =====
     _createHUD() {
         let hud = document.getElementById('battleHUD');
         if (hud) hud.remove();
         hud = document.createElement('div');
         hud.id = 'battleHUD';
         hud.style.cssText = `
-            position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:700;pointer-events:auto;
-            background:rgba(8,12,20,0.92);backdrop-filter:blur(24px);
-            border:1px solid rgba(255,255,255,0.06);border-radius:18px;
-            padding:18px 32px;min-width:460px;
+            position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:700;pointer-events:auto;
+            background:rgba(8,12,20,0.94);backdrop-filter:blur(28px);
+            border:1px solid rgba(255,255,255,0.06);border-radius:16px;
+            padding:16px 28px 12px;min-width:520px;max-width:600px;
             font-family:Inter,system-ui,sans-serif;color:#e2e8f0;
-            box-shadow:0 8px 40px rgba(0,0,0,0.6),0 0 80px rgba(79,143,247,0.05),0 0 80px rgba(240,96,96,0.05);
+            box-shadow:0 8px 48px rgba(0,0,0,0.7),0 0 60px rgba(79,143,247,0.04),0 0 60px rgba(240,96,96,0.04);
             opacity:0;transition:opacity 0.8s ease;
         `;
         hud.innerHTML = this._buildHUD();
         map.getContainer().appendChild(hud);
         this.hud = hud;
         requestAnimationFrame(() => hud.style.opacity = '1');
-        hud.querySelector('#battleClose').addEventListener('click', () => this.stop());
+
+        // Event listeners
+        hud.querySelector('#battleClose')?.addEventListener('click', () => this.stop());
+        hud.querySelector('#battleSkip')?.addEventListener('click', () => this.skip());
+        hud.querySelector('#speed1x')?.addEventListener('click', () => this.setSpeed(1));
+        hud.querySelector('#speed2x')?.addEventListener('click', () => this.setSpeed(2));
+        hud.querySelector('#speed4x')?.addEventListener('click', () => this.setSpeed(4));
     }
 
     _buildHUD() {
@@ -193,261 +277,531 @@ class MapBattle {
         const L = this.data.left, R = this.data.right;
         const yearStr = typeof yearLabel !== 'undefined' ? yearLabel(this.year) : this.year;
         const col = MAP_BATTLE_CFG.COLORS;
+
         return `
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:20px">
-            <div style="text-align:center;flex:1;min-width:140px">
-                <div style="font-size:19px;font-weight:800;color:${col.blue.main};text-shadow:0 0 20px ${col.blue.glow}">${this.nameL}</div>
-                <div style="font-size:11px;color:#64748b;margin-top:3px">${fmtPop(L.pop)} · STR ${(L.npi||0).toFixed(1)}%</div>
-                <div style="margin-top:8px;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;position:relative">
-                    <div id="hpBarL" style="height:100%;width:100%;background:linear-gradient(90deg,${col.blue.dark},${col.blue.main},${col.blue.light});border-radius:4px;transition:width 0.15s ease;box-shadow:0 0 8px ${col.blue.glow}"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px">
+            <!-- LEFT -->
+            <div style="text-align:center;flex:1;min-width:150px">
+                <div style="font-size:18px;font-weight:800;color:${col.blue.main};text-shadow:0 0 16px ${col.blue.glow}">${this.nameL}</div>
+                <div style="font-size:10px;color:#64748b;margin-top:2px">${fmtPop(L.pop)} · STR ${this.strengthL.toFixed(1)}%</div>
+                <!-- Combat Power Bar -->
+                <div style="margin-top:6px;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden">
+                    <div id="hpBarL" style="height:100%;width:100%;background:linear-gradient(90deg,${col.blue.dark},${col.blue.main},${col.blue.light});border-radius:4px;transition:width 0.3s ease;box-shadow:0 0 8px ${col.blue.glow}"></div>
                 </div>
-                <div id="hpTextL" style="font-size:10px;color:${col.blue.main};margin-top:3px;font-weight:600">100%</div>
-                <div style="font-size:9px;color:#475569;margin-top:2px;letter-spacing:0.5px">
-                    ${this.armiesL.map(a => this.isZh ? a.zh : a.name).join(' · ')}
+                <div style="display:flex;justify-content:space-between;margin-top:3px">
+                    <span id="hpTextL" style="font-size:10px;color:${col.blue.main};font-weight:600">${Math.round(this.cpL)}%</span>
+                    <span id="stabilityL" style="font-size:9px;color:#64748b">${this.isZh?'士气':'Morale'} 100%</span>
                 </div>
             </div>
-            <div style="text-align:center;flex-shrink:0;padding:0 8px">
-                <div style="font-size:11px;color:#64748b;font-weight:500">${yearStr}</div>
-                <div style="font-size:32px;font-weight:900;background:linear-gradient(180deg,#f59e0b,#d97706);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1.1;margin:2px 0">VS</div>
-                <button id="battleClose" style="margin-top:6px;font-size:10px;color:#64748b;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:3px 14px;cursor:pointer;transition:all 0.2s">
+
+            <!-- CENTER -->
+            <div style="text-align:center;flex-shrink:0;padding:0 6px">
+                <div style="font-size:10px;color:#64748b;font-weight:500">${yearStr}</div>
+                <div id="phaseLabel" style="font-size:11px;color:${col.gold};font-weight:700;margin:2px 0;letter-spacing:0.5px">${this.isZh?'战争爆发':'OUTBREAK'}</div>
+                <div id="winProbBar" style="margin:6px 0;height:6px;width:80px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;display:flex">
+                    <div id="winProbL" style="height:100%;width:${(this.winChanceL*100).toFixed(0)}%;background:${col.blue.main};transition:width 0.5s ease"></div>
+                    <div id="winProbR" style="height:100%;flex:1;background:${col.red.main};transition:width 0.5s ease"></div>
+                </div>
+                <div style="font-size:9px;color:#475569">${this.isZh?'胜率':'Win %'}</div>
+                <!-- Speed controls -->
+                <div style="margin-top:6px;display:flex;gap:4px;justify-content:center">
+                    <button id="speed1x" class="speed-btn speed-active" style="font-size:9px;padding:2px 8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1);background:rgba(245,158,11,0.15);color:#f59e0b;cursor:pointer">1x</button>
+                    <button id="speed2x" class="speed-btn" style="font-size:9px;padding:2px 8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);color:#64748b;cursor:pointer">2x</button>
+                    <button id="speed4x" class="speed-btn" style="font-size:9px;padding:2px 8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);color:#64748b;cursor:pointer">4x</button>
+                    <button id="battleSkip" style="font-size:9px;padding:2px 8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);color:#64748b;cursor:pointer">${this.isZh?'跳过':'SKIP'}</button>
+                </div>
+                <button id="battleClose" style="margin-top:6px;font-size:9px;color:#475569;background:none;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:2px 12px;cursor:pointer">
                     ${this.isZh ? '退出' : 'EXIT'}
                 </button>
             </div>
-            <div style="text-align:center;flex:1;min-width:140px">
-                <div style="font-size:19px;font-weight:800;color:${col.red.main};text-shadow:0 0 20px ${col.red.glow}">${this.nameR}</div>
-                <div style="font-size:11px;color:#64748b;margin-top:3px">${fmtPop(R.pop)} · STR ${(R.npi||0).toFixed(1)}%</div>
-                <div style="margin-top:8px;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;position:relative">
-                    <div id="hpBarR" style="height:100%;width:100%;background:linear-gradient(270deg,${col.red.dark},${col.red.main},${col.red.light});border-radius:4px;transition:width 0.15s ease;box-shadow:0 0 8px ${col.red.glow}"></div>
+
+            <!-- RIGHT -->
+            <div style="text-align:center;flex:1;min-width:150px">
+                <div style="font-size:18px;font-weight:800;color:${col.red.main};text-shadow:0 0 16px ${col.red.glow}">${this.nameR}</div>
+                <div style="font-size:10px;color:#64748b;margin-top:2px">${fmtPop(R.pop)} · STR ${this.strengthR.toFixed(1)}%</div>
+                <div style="margin-top:6px;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden">
+                    <div id="hpBarR" style="height:100%;width:100%;background:linear-gradient(270deg,${col.red.dark},${col.red.main},${col.red.light});border-radius:4px;transition:width 0.3s ease;box-shadow:0 0 8px ${col.red.glow}"></div>
                 </div>
-                <div id="hpTextR" style="font-size:10px;color:${col.red.main};margin-top:3px;font-weight:600">100%</div>
-                <div style="font-size:9px;color:#475569;margin-top:2px;letter-spacing:0.5px">
-                    ${this.armiesR.map(a => this.isZh ? a.zh : a.name).join(' · ')}
+                <div style="display:flex;justify-content:space-between;margin-top:3px">
+                    <span id="stabilityR" style="font-size:9px;color:#64748b">${this.isZh?'士气':'Morale'} 100%</span>
+                    <span id="hpTextR" style="font-size:10px;color:${col.red.main};font-weight:600">${Math.round(this.cpR)}%</span>
                 </div>
             </div>
         </div>
-        <div id="battleLogBox" style="margin-top:10px;max-height:52px;overflow:hidden;font-size:11px;color:#94a3b8;text-align:center;line-height:1.7"></div>
+
+        <!-- War Report / Battle Log -->
+        <div id="battleLogBox" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.04);max-height:56px;overflow:hidden;font-size:11px;color:#94a3b8;text-align:center;line-height:1.6"></div>
         `;
+    }
+
+    _updateSpeedButtons() {
+        ['speed1x','speed2x','speed4x'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            const isActive = (id === 'speed1x' && this.speed === 1) ||
+                             (id === 'speed2x' && this.speed === 2) ||
+                             (id === 'speed4x' && this.speed === 4);
+            btn.style.background = isActive ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)';
+            btn.style.color = isActive ? '#f59e0b' : '#64748b';
+        });
     }
 
     // ===== MAIN LOOP =====
     _tick(now) {
         if (!this.running) return;
-        const dt = Math.min(now - this.lastTime, 50);
+        const rawDt = Math.min(now - this.lastTime, 50);
         this.lastTime = now;
+        const dt = rawDt * this.speed;
         this.elapsed += dt;
-        this.beamPhase += dt * 0.003;
+        this.borderFlashPhase += dt * 0.004;
+        this.tickAccum += dt;
 
         const cfg = MAP_BATTLE_CFG.PHASE_MS;
-        if (this.phase === 'setup') {
-            if (this.elapsed >= cfg.setup) { this.phase = 'battle'; this.elapsed = 0; this._addLog(this.isZh ? '战斗开始！' : 'Battle commences!'); }
-        } else if (this.phase === 'battle') {
-            this._updateBattle(dt);
-            if (this.elapsed >= cfg.battle) { this.phase = 'victory'; this.elapsed = 0; this._showVictory(); }
-        } else if (this.phase === 'victory') {
-            this._updateVictory(dt);
-            if (this.elapsed >= cfg.victory) {
+
+        if (this.phase === 'outbreak') {
+            this._updateOutbreak(dt);
+            if (this.elapsed >= cfg.outbreak) {
+                this.phase = 'attrition';
+                this.elapsed = 0;
+                this._updatePhaseLabel(this.isZh ? '消耗拉锯' : 'ATTRITION');
+                this._addLog(this.isZh
+                    ? `${this.nameL} 与 ${this.nameR} 的军队在边境全面接触`
+                    : `${this.nameL} and ${this.nameR} forces engage along the border`);
+            }
+        } else if (this.phase === 'attrition') {
+            this._updateAttrition(dt);
+            // Check for collapse trigger
+            const loserHp = this.winner === 'left' ? this.hpR : this.hpL;
+            const loserMaxHp = this.winner === 'left' ? this.maxHpR : this.maxHpL;
+            const loserStab = this.winner === 'left' ? this.stabilityR : this.stabilityL;
+            if ((loserHp / loserMaxHp < MAP_BATTLE_CFG.COLLAPSE_THRESHOLD || loserStab < 25) && !this.collapseTriggered) {
+                this.phase = 'collapse';
+                this.elapsed = 0;
+                this.collapseTriggered = true;
+                this.collapsingISO = this.winner === 'left' ? this.rightISO : this.leftISO;
+                const collapser = this.winner === 'left' ? this.nameR : this.nameL;
+                this._updatePhaseLabel(this.isZh ? '士气崩溃' : 'COLLAPSE');
+                this._addLog(this.isZh
+                    ? `${collapser} 的军队士气崩溃！全线溃退`
+                    : `${collapser}'s army morale collapses! Full retreat!`);
+            }
+            // Time limit fallback
+            if (this.elapsed >= cfg.attrition && !this.collapseTriggered) {
+                this.phase = 'collapse';
+                this.elapsed = 0;
+                this.collapseTriggered = true;
+                this.collapsingISO = this.winner === 'left' ? this.rightISO : this.leftISO;
+                this._updatePhaseLabel(this.isZh ? '士气崩溃' : 'COLLAPSE');
+            }
+        } else if (this.phase === 'collapse') {
+            this._updateCollapse(dt);
+            if (this.elapsed >= cfg.collapse) {
+                this.phase = 'done';
+                this._showVictory();
+            }
+        } else if (this.phase === 'done') {
+            // Victory display, wait a few seconds then cleanup
+            if (this.elapsed > 4000) {
                 this.running = false;
                 setTimeout(() => this._cleanup(), 600);
-                if (this.onComplete) this.onComplete(this.winner, this.ratioL, this.ratioR);
+                if (this.onComplete) this.onComplete(this.winner, {
+                    popLossL: this.popLossL,
+                    popLossR: this.popLossR,
+                    stabilityL: this.stabilityL,
+                    stabilityR: this.stabilityR,
+                    resources: this.resourcesConsumed,
+                });
                 return;
             }
+            this.elapsed += dt;
         }
+
         this._render();
         this.animFrame = requestAnimationFrame(t => this._tick(t));
     }
 
-    // ===== BATTLE UPDATE =====
-    _updateBattle(dt) {
-        const progress = this.elapsed / MAP_BATTLE_CFG.PHASE_MS.battle;
-        const pxL = this.centroidL ? map.latLngToContainerPoint(this.centroidL) : {x:100,y:300};
-        const pxR = this.centroidR ? map.latLngToContainerPoint(this.centroidR) : {x:700,y:300};
+    // ===== PHASE 1: OUTBREAK (2s) =====
+    _updateOutbreak(dt) {
+        const progress = this.elapsed / MAP_BATTLE_CFG.PHASE_MS.outbreak;
 
-        // Frontline easing
-        const targetFront = this.winner === 'left'
-            ? 0.5 - 0.18 * Math.pow(progress, 0.7)
-            : 0.5 + 0.18 * Math.pow(progress, 0.7);
-        this.frontline += (targetFront - this.frontline) * 0.03;
+        // Flash borders
+        const flashIntensity = 0.3 + 0.7 * Math.abs(Math.sin(this.borderFlashPhase * 6));
+        const colL = MAP_BATTLE_CFG.COLORS.blue;
+        const colR = MAP_BATTLE_CFG.COLORS.red;
 
-        const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
-        const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
-
-        // Spawn particles in waves (intensity ramps up)
-        const intensity = 0.5 + progress * 1.5;
-        const spawnCount = Math.ceil(MAP_BATTLE_CFG.PARTICLE_SPAWN_RATE * intensity);
-        for (let i = 0; i < spawnCount; i++) {
-            if (this.particles.length < 200) { // cap
-                this._spawnParticle('left', pxL);
-                this._spawnParticle('right', pxR);
+        geoLayer.eachLayer(layer => {
+            const props = layer.feature.properties;
+            let iso = props.ISO_A3;
+            if (iso === '-99' && typeof ISO_FIXES !== 'undefined') iso = ISO_FIXES[props.NAME] || iso;
+            if (iso === this.leftISO) {
+                layer.setStyle({
+                    color: colL.light,
+                    weight: 2 + flashIntensity * 2,
+                    fillOpacity: 0.3 + flashIntensity * 0.25
+                });
+            } else if (iso === this.rightISO) {
+                layer.setStyle({
+                    color: colR.light,
+                    weight: 2 + flashIntensity * 2,
+                    fillOpacity: 0.3 + flashIntensity * 0.25
+                });
             }
+        });
+    }
+
+    // ===== PHASE 2: ATTRITION (15-20s) =====
+    _updateAttrition(dt) {
+        const progress = this.elapsed / MAP_BATTLE_CFG.PHASE_MS.attrition;
+
+        // Combat ticks every TICK_INTERVAL
+        while (this.tickAccum >= MAP_BATTLE_CFG.TICK_INTERVAL) {
+            this.tickAccum -= MAP_BATTLE_CFG.TICK_INTERVAL;
+            this._combatTick(progress);
         }
 
-        // Update particles
-        let collisionsThisFrame = 0;
-        for (let p of this.particles) {
-            if (!p.alive) continue;
-            const tx = midX + (Math.random()-0.5)*24;
-            const ty = midY + (Math.random()-0.5)*24;
-            const dx = tx - p.x, dy = ty - p.y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
+        // Frontline movement
+        this._updateFrontline(progress);
 
-            if (dist < MAP_BATTLE_CFG.COLLISION_ZONE) {
-                p.alive = false;
-                collisionsThisFrame++;
-                this._createSpark(p.x, p.y, p.side);
-                const strength = p.side === 'left' ? this.ratioL : this.ratioR;
-                // Slower HP drain: loser reaches ~10-15% at end, winner ~35-50%
-                const baseDmg = 0.06 + Math.random()*0.08;
-                const dmg = baseDmg * (strength / 0.5);
-                if (p.side === 'left') {
-                    this.hpR = Math.max(5, this.hpR - dmg);
-                    this.cumulativeDmgR += dmg;
-                } else {
-                    this.hpL = Math.max(5, this.hpL - dmg);
-                    this.cumulativeDmgL += dmg;
+        // Update territory visuals
+        this._updateTerritoryVisuals();
+
+        // Update HUD
+        this._updateHUD();
+
+        // Battle log events
+        this._checkLogEvents(progress);
+    }
+
+    _combatTick(progress) {
+        // Each side deals damage based on their current strength
+        const stabMultL = this.stabilityL / 100;
+        const stabMultR = this.stabilityR / 100;
+
+        // Damage dealt by each side (affected by their own stability)
+        const baseDmgL = (this.cpL / 100) * 1.8 * stabMultL; // L deals to R
+        const baseDmgR = (this.cpR / 100) * 1.8 * stabMultR; // R deals to L
+
+        // ±5% fluctuation
+        const fluctL = 1 + (Math.random() - 0.5) * 2 * MAP_BATTLE_CFG.FLUCTUATION;
+        const fluctR = 1 + (Math.random() - 0.5) * 2 * MAP_BATTLE_CFG.FLUCTUATION;
+
+        const dmgToR = baseDmgL * fluctL;
+        const dmgToL = baseDmgR * fluctR;
+
+        this.hpL = Math.max(2, this.hpL - dmgToL);
+        this.hpR = Math.max(2, this.hpR - dmgToR);
+
+        // Stability decay (loser decays faster)
+        const hpRatioL = this.hpL / this.maxHpL;
+        const hpRatioR = this.hpR / this.maxHpR;
+
+        // Stability drops faster when losing
+        const stabDecayL = hpRatioL < 0.5 ? 2.5 : 1.0;
+        const stabDecayR = hpRatioR < 0.5 ? 2.5 : 1.0;
+
+        this.stabilityL = Math.max(0, this.stabilityL - (1 - hpRatioL) * stabDecayL * 1.2);
+        this.stabilityR = Math.max(0, this.stabilityR - (1 - hpRatioR) * stabDecayR * 1.2);
+
+        // Population loss proportional to damage
+        const popL = this.data.left.pop || 100000;
+        const popR = this.data.right.pop || 100000;
+        this.popLossL += (dmgToL / this.maxHpL) * popL * 0.005;
+        this.popLossR += (dmgToR / this.maxHpR) * popR * 0.005;
+
+        // Resource consumption
+        this.resourcesConsumed += (dmgToL + dmgToR) * 0.1;
+
+        // Update real-time win probability
+        const totalHp = this.hpL + this.hpR;
+        const currentWinL = totalHp > 0 ? this.hpL / totalHp : 0.5;
+        this.winProbHistory.push(currentWinL);
+    }
+
+    _updateFrontline(progress) {
+        // Frontline moves based on HP ratio
+        const hpRatioL = this.hpL / this.maxHpL;
+        const hpRatioR = this.hpR / this.maxHpR;
+        const advantage = hpRatioL / (hpRatioL + hpRatioR + 0.001);
+
+        // Target: 0.5 = center, <0.5 = L pushing toward R, >0.5 = R pushing toward L
+        this.targetFrontline = 1 - advantage; // if L stronger, frontline moves toward R (lower value)
+
+        // Add wave-like oscillation for "push and pull" feel
+        const wave = Math.sin(progress * Math.PI * 6) * 0.03 * (1 - progress); // oscillation decreases over time
+        this.targetFrontline += wave;
+
+        // Smooth interpolation
+        this.frontline += (this.targetFrontline - this.frontline) * 0.02;
+    }
+
+    _updateTerritoryVisuals() {
+        const hpRatioL = this.hpL / this.maxHpL;
+        const hpRatioR = this.hpR / this.maxHpR;
+        const colL = MAP_BATTLE_CFG.COLORS.blue;
+        const colR = MAP_BATTLE_CFG.COLORS.red;
+
+        // Territory opacity reflects strength: stronger = more solid
+        const targetOpL = 0.15 + 0.45 * hpRatioL;
+        const targetOpR = 0.15 + 0.45 * hpRatioR;
+        this.territoryOpacityL += (targetOpL - this.territoryOpacityL) * 0.05;
+        this.territoryOpacityR += (targetOpR - this.territoryOpacityR) * 0.05;
+
+        // Border pulse on combat
+        const pulse = Math.sin(this.borderFlashPhase * 3) * 0.08;
+
+        geoLayer.eachLayer(layer => {
+            const props = layer.feature.properties;
+            let iso = props.ISO_A3;
+            if (iso === '-99' && typeof ISO_FIXES !== 'undefined') iso = ISO_FIXES[props.NAME] || iso;
+            if (iso === this.leftISO) {
+                layer.setStyle({
+                    fillOpacity: this.territoryOpacityL + pulse,
+                    weight: 1.5 + hpRatioL * 1.5
+                });
+            } else if (iso === this.rightISO) {
+                layer.setStyle({
+                    fillOpacity: this.territoryOpacityR + pulse,
+                    weight: 1.5 + hpRatioR * 1.5
+                });
+            }
+        });
+    }
+
+    _checkLogEvents(progress) {
+        const logCount = this.battleLog.length;
+        const winnerName = this.winner === 'left' ? this.nameL : this.nameR;
+        const loserName = this.winner === 'left' ? this.nameR : this.nameL;
+
+        if (progress > 0.15 && logCount < 2) {
+            const msgs = {
+                ancient: {
+                    zh: `${winnerName} 的战车部队率先发起冲锋`,
+                    en: `${winnerName}'s chariot forces charge first`
+                },
+                medieval: {
+                    zh: `${winnerName} 的骑兵向侧翼发起猛攻`,
+                    en: `${winnerName}'s cavalry flanks the enemy`
+                },
+                modern: {
+                    zh: `${winnerName} 在空中取得制空权`,
+                    en: `${winnerName} establishes air superiority`
                 }
-                if (Math.random() < 0.08) this._addDamageNum(p.x, p.y, dmg, p.side);
+            };
+            const m = msgs[this.era];
+            this._addLog(this.isZh ? m.zh : m.en);
+        }
+        if (progress > 0.35 && logCount < 3) {
+            this._addLog(this.isZh
+                ? `${loserName} 的补给线受到严重威胁`
+                : `${loserName}'s supply lines are under threat`);
+        }
+        if (progress > 0.55 && logCount < 4) {
+            const hpRatioLoser = this.winner === 'left' ? this.hpR/this.maxHpR : this.hpL/this.maxHpL;
+            if (hpRatioLoser < 0.6) {
+                this._addLog(this.isZh
+                    ? `战场局势逐渐明朗，${loserName} 伤亡惨重`
+                    : `The tide turns. ${loserName} suffers heavy losses`);
             } else {
-                const speed = (3 + Math.random()*2 + progress*2) * (dt/16);
-                const nx = dx/dist, ny = dy/dist;
-                // Bezier curve wobble
-                const wobble = Math.sin(p.life*3 + p.phase) * (0.2 + 0.15*Math.sin(p.phase*2));
-                p.x += (nx + (-ny)*wobble) * speed;
-                p.y += (ny + nx*wobble) * speed;
+                this._addLog(this.isZh
+                    ? `双方陷入胶着，消耗战持续中`
+                    : `Both sides locked in a war of attrition`);
             }
-            p.trail.push({x:p.x, y:p.y});
-            if (p.trail.length > 12) p.trail.shift();
-            p.life += dt/1000;
-            if (p.life > 5) p.alive = false;
         }
-        this.particles = this.particles.filter(p => p.alive);
-
-        // Big hit flash (when many collisions happen at once)
-        if (collisionsThisFrame > 6) {
-            this.hitFlash = 0.15;
-            // Shockwave at frontline
-            this.shockwaves.push({ x: midX, y: midY, radius: 5, maxRadius: 60 + collisionsThisFrame*3, alpha: 0.5, life: 0 });
-        }
-        this.hitFlash = Math.max(0, this.hitFlash - dt*0.003);
-
-        // Update sparks
-        for (let s of this.sparks) {
-            s.life = (s.life||0) + dt/1000;
-            if (s.type === 'ring') { s.radius += 2.5; s.alpha -= 0.025; }
-            else if (s.type === 'frag') { s.x += (s.vx||0); s.y += (s.vy||0); s.vy = (s.vy||0)+0.08; s.alpha -= 0.02; }
-        }
-        this.sparks = this.sparks.filter(s => s.alpha > 0);
-
-        // Update shockwaves
-        for (let sw of this.shockwaves) {
-            sw.radius += 3;
-            sw.alpha -= 0.012;
-            sw.life += dt/1000;
-        }
-        this.shockwaves = this.shockwaves.filter(sw => sw.alpha > 0 && sw.radius < sw.maxRadius);
-
-        // Damage numbers
-        for (let d of this.damageNums) { d.y -= 0.6; d.life += dt/1000; d.alpha = Math.max(0, 1-d.life/1.8); d.scale = 1 + 0.3*(1-d.life/1.8); }
-        this.damageNums = this.damageNums.filter(d => d.alpha > 0);
-
-        // HP bars with color transitions
-        this._updateHPBars();
-
-        // Territory pulse on damage
-        if (collisionsThisFrame > 3) this._pulseCountry(collisionsThisFrame > 5);
-
-        // Battle log
-        if (progress > 0.15 && this.battleLog.length < 2) {
-            const stronger = this.winner === 'left' ? this.nameL : this.nameR;
-            this._addLog(this.isZh ? `${stronger} 的攻势如潮水般涌来` : `${stronger}'s forces surge forward`);
-        }
-        if (progress > 0.4 && this.battleLog.length < 3) {
-            const loser = this.winner === 'left' ? this.nameR : this.nameL;
-            this._addLog(this.isZh ? `${loser} 前线不断后撤` : `${loser}'s frontline crumbles`);
-        }
-        if (progress > 0.65 && this.battleLog.length < 4) {
-            this._addLog(this.isZh ? '战场陷入白热化' : 'The battle reaches its climax');
-        }
-        if (progress > 0.85 && this.battleLog.length < 5) {
-            const winner = this.winner === 'left' ? this.nameL : this.nameR;
-            this._addLog(this.isZh ? `${winner} 发起最后总攻！` : `${winner} launches the final assault!`);
+        if (progress > 0.75 && logCount < 5) {
+            const stabLoser = this.winner === 'left' ? this.stabilityR : this.stabilityL;
+            if (stabLoser < 50) {
+                this._addLog(this.isZh
+                    ? `${loserName} 军中出现厌战情绪，士气动摇`
+                    : `War-weariness spreads in ${loserName}'s ranks`);
+            }
         }
     }
 
-    _spawnParticle(side, px) {
-        const col = side === 'left' ? MAP_BATTLE_CFG.COLORS.blue : MAP_BATTLE_CFG.COLORS.red;
-        const spread = 40;
-        const size = 2.5 + Math.random()*3.5;
-        this.particles.push({
-            side,
-            x: px.x + (Math.random()-0.5)*spread,
-            y: px.y + (Math.random()-0.5)*spread,
-            size,
-            color: col.main,
-            light: col.light,
-            glow: col.glow,
-            ultra: col.ultra,
-            life: 0,
-            phase: Math.random()*Math.PI*2,
-            trail: [],
-            alive: true,
+    // ===== PHASE 3: COLLAPSE (5-8s) =====
+    _updateCollapse(dt) {
+        const progress = this.elapsed / MAP_BATTLE_CFG.PHASE_MS.collapse;
+        const accel = MAP_BATTLE_CFG.COLLAPSE_ACCEL;
+
+        // Accelerated damage to loser
+        if (this.winner === 'left') {
+            this.hpR = Math.max(0, this.hpR - accel * dt * 0.005);
+            this.stabilityR = Math.max(0, this.stabilityR - accel * dt * 0.008);
+            this.popLossR += dt * 0.02 * (this.data.right.pop || 100000) * 0.00001;
+        } else {
+            this.hpL = Math.max(0, this.hpL - accel * dt * 0.005);
+            this.stabilityL = Math.max(0, this.stabilityL - accel * dt * 0.008);
+            this.popLossL += dt * 0.02 * (this.data.left.pop || 100000) * 0.00001;
+        }
+
+        // Frontline rapidly advances
+        const targetFront = this.winner === 'left' ? 0.1 : 0.9;
+        this.frontline += (targetFront - this.frontline) * 0.04;
+
+        // Territory: winner expands, loser fades
+        const colW = this.winner === 'left' ? MAP_BATTLE_CFG.COLORS.blue : MAP_BATTLE_CFG.COLORS.red;
+        const winISO = this.winner === 'left' ? this.leftISO : this.rightISO;
+        const loseISO = this.winner === 'left' ? this.rightISO : this.leftISO;
+
+        geoLayer.eachLayer(layer => {
+            const props = layer.feature.properties;
+            let iso = props.ISO_A3;
+            if (iso === '-99' && typeof ISO_FIXES !== 'undefined') iso = ISO_FIXES[props.NAME] || iso;
+            if (iso === winISO) {
+                layer.setStyle({
+                    fillOpacity: 0.5 + progress * 0.2,
+                    fillColor: colW.main,
+                    color: colW.light,
+                    weight: 2.5 + progress,
+                });
+            } else if (iso === loseISO) {
+                // Fading, darkening
+                layer.setStyle({
+                    fillOpacity: Math.max(0.08, 0.35 - progress * 0.3),
+                    fillColor: '#1e293b',
+                    color: '#334155',
+                    weight: Math.max(0.5, 1.5 - progress),
+                });
+            }
         });
+
+        this._updateHUD();
+
+        // Collapse log
+        if (progress > 0.5 && this.battleLog.length < 7) {
+            const winnerName = this.winner === 'left' ? this.nameL : this.nameR;
+            this._addLog(this.isZh
+                ? `${winnerName} 的军队势如破竹！`
+                : `${winnerName}'s forces advance relentlessly!`);
+        }
     }
 
-    _createSpark(x, y, side) {
-        const col = side === 'left' ? MAP_BATTLE_CFG.COLORS.blue : MAP_BATTLE_CFG.COLORS.red;
-        // Double ring
-        this.sparks.push({ x, y, radius: 2, alpha: 0.7, color: MAP_BATTLE_CFG.COLORS.gold, type: 'ring' });
-        this.sparks.push({ x, y, radius: 1, alpha: 0.4, color: col.ultra, type: 'ring' });
-        // Fragments
-        const fragCount = 3 + Math.floor(Math.random()*3);
-        for (let i = 0; i < fragCount; i++) {
-            const angle = Math.random()*Math.PI*2;
-            const speed = 1.5 + Math.random()*4;
-            this.sparks.push({
-                x, y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
-                radius: 1 + Math.random()*1.5, alpha: 0.9,
-                color: Math.random() > 0.5 ? col.light : MAP_BATTLE_CFG.COLORS.gold,
-                type: 'frag',
+    // ===== VICTORY =====
+    _showVictory() {
+        const winISO = this.winner === 'left' ? this.leftISO : this.rightISO;
+        const loseISO = this.winner === 'left' ? this.rightISO : this.leftISO;
+        const winName = this.winner === 'left' ? this.nameL : this.nameR;
+        const loseName = this.winner === 'left' ? this.nameR : this.nameL;
+
+        // Winner territory glows green
+        geoLayer.eachLayer(layer => {
+            const props = layer.feature.properties;
+            let iso = props.ISO_A3;
+            if (iso === '-99' && typeof ISO_FIXES !== 'undefined') iso = ISO_FIXES[props.NAME] || iso;
+            if (iso === winISO) {
+                layer.setStyle({ fillColor: MAP_BATTLE_CFG.COLORS.victory, fillOpacity: 0.55, color: '#6ee7b7', weight: 3 });
+            } else if (iso === loseISO) {
+                layer.setStyle({ fillColor: '#1e293b', fillOpacity: 0.12, color: '#334155', weight: 0.8 });
+            }
+        });
+
+        this._updatePhaseLabel(this.isZh ? '战争结束' : 'WAR OVER');
+
+        const fmtK = n => n > 1e6 ? (n/1e6).toFixed(1)+'M' : n > 1000 ? Math.round(n/1000)+'K' : Math.round(n);
+        const gdpLossL = Math.round((1 - this.hpL/this.maxHpL) * (this.data.left.gdp||0) * 0.1);
+        const gdpLossR = Math.round((1 - this.hpR/this.maxHpR) * (this.data.right.gdp||0) * 0.1);
+
+        // Victory banner
+        let banner = document.getElementById('victoryBanner');
+        if (banner) banner.remove();
+        banner = document.createElement('div');
+        banner.id = 'victoryBanner';
+        banner.style.cssText = `
+            position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) scale(0.5);
+            z-index:750;text-align:center;pointer-events:none;
+            font-family:Inter,system-ui,sans-serif;
+            opacity:0;transition:all 0.8s cubic-bezier(0.34,1.56,0.64,1);
+        `;
+        banner.innerHTML = `
+            <div style="font-size:11px;color:#94a3b8;letter-spacing:4px;text-transform:uppercase;margin-bottom:6px;font-weight:300">
+                ${this.isZh ? '胜 利' : 'V I C T O R Y'}
+            </div>
+            <div style="font-size:44px;font-weight:900;color:${MAP_BATTLE_CFG.COLORS.victory};text-shadow:0 0 50px rgba(52,211,153,0.4),0 2px 16px rgba(0,0,0,0.5);line-height:1">
+                ${winName}
+            </div>
+
+            <!-- War Summary -->
+            <div style="margin-top:16px;background:rgba(8,12,20,0.85);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:12px 20px;backdrop-filter:blur(16px);text-align:left;min-width:280px">
+                <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;text-align:center">${this.isZh?'战争代价':'COST OF WAR'}</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
+                    <div style="color:${MAP_BATTLE_CFG.COLORS.blue.main}">
+                        <div style="font-weight:700">${this.nameL}</div>
+                        <div style="color:#64748b">${this.isZh?'伤亡':'Casualties'}: ${fmtK(this.popLossL)}</div>
+                        <div style="color:#64748b">${this.isZh?'士气':'Morale'}: ${Math.round(this.stabilityL)}%</div>
+                        <div style="color:#64748b">GDP: -${fmtK(gdpLossL)}</div>
+                    </div>
+                    <div style="color:${MAP_BATTLE_CFG.COLORS.red.main};text-align:right">
+                        <div style="font-weight:700">${this.nameR}</div>
+                        <div style="color:#64748b">${fmtK(this.popLossR)} :${this.isZh?'伤亡':'Casualties'}</div>
+                        <div style="color:#64748b">${Math.round(this.stabilityR)}% :${this.isZh?'士气':'Morale'}</div>
+                        <div style="color:#64748b">-${fmtK(gdpLossR)} :GDP</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        map.getContainer().appendChild(banner);
+        requestAnimationFrame(() => { banner.style.opacity = '1'; banner.style.transform = 'translate(-50%,-50%) scale(1)'; });
+
+        this._addLog(this.isZh
+            ? `${winName} 取得决定性胜利。${loseName} 付出了惨痛代价。`
+            : `${winName} achieves decisive victory. ${loseName} pays a heavy price.`);
+
+        this.elapsed = 0; // Reset for done-phase timer
+    }
+
+    // ===== INSTANT RESOLUTION =====
+    _resolveInstant() {
+        // Simulate full battle instantly
+        for (let i = 0; i < 60; i++) this._combatTick(i/60);
+
+        // Force collapse
+        if (this.winner === 'left') {
+            this.hpR = 5;
+            this.stabilityR = 8;
+        } else {
+            this.hpL = 5;
+            this.stabilityL = 8;
+        }
+
+        this.phase = 'done';
+        this._showVictory();
+
+        // Auto cleanup after 4s
+        setTimeout(() => {
+            this._cleanup();
+            if (this.onComplete) this.onComplete(this.winner, {
+                popLossL: this.popLossL,
+                popLossR: this.popLossR,
+                stabilityL: this.stabilityL,
+                stabilityR: this.stabilityR,
+                resources: this.resourcesConsumed,
             });
-        }
+        }, 4000);
     }
 
-    _addDamageNum(x, y, dmg, side) {
-        const col = side === 'left' ? MAP_BATTLE_CFG.COLORS.red : MAP_BATTLE_CFG.COLORS.blue; // damage shows on opponent
-        this.damageNums.push({
-            x: x + (Math.random()-0.5)*16, y: y - 12,
-            text: '-' + Math.round(dmg * 12),
-            color: col.main, life: 0, alpha: 1, scale: 1,
-        });
-    }
-
-    _addLog(msg) {
-        this.battleLog.push(msg);
-        const box = document.getElementById('battleLogBox');
-        if (box) {
-            const logs = this.battleLog.slice(-3);
-            box.innerHTML = logs.map((m, i) => {
-                const op = 0.4 + 0.6 * ((i + 1) / logs.length);
-                return `<div style="opacity:${op};transition:opacity 0.3s">${m}</div>`;
-            }).join('');
-        }
-    }
-
-    _updateHPBars() {
+    // ===== HUD UPDATE =====
+    _updateHUD() {
         const hpBarL = document.getElementById('hpBarL');
         const hpBarR = document.getElementById('hpBarR');
         const hpTextL = document.getElementById('hpTextL');
         const hpTextR = document.getElementById('hpTextR');
-        if (hpBarL) {
-            hpBarL.style.width = this.hpL + '%';
-            hpBarL.style.background = this._hpGradient(this.hpL, 'left');
-        }
-        if (hpBarR) {
-            hpBarR.style.width = this.hpR + '%';
-            hpBarR.style.background = this._hpGradient(this.hpR, 'right');
-        }
-        if (hpTextL) { hpTextL.textContent = Math.round(this.hpL) + '%'; hpTextL.style.color = this._hpColor(this.hpL); }
-        if (hpTextR) { hpTextR.textContent = Math.round(this.hpR) + '%'; hpTextR.style.color = this._hpColor(this.hpR); }
+        const stabL = document.getElementById('stabilityL');
+        const stabR = document.getElementById('stabilityR');
+        const winProbL = document.getElementById('winProbL');
+
+        const hpPctL = (this.hpL / this.maxHpL) * 100;
+        const hpPctR = (this.hpR / this.maxHpR) * 100;
+
+        if (hpBarL) { hpBarL.style.width = hpPctL + '%'; hpBarL.style.background = this._hpGradient(hpPctL, 'left'); }
+        if (hpBarR) { hpBarR.style.width = hpPctR + '%'; hpBarR.style.background = this._hpGradient(hpPctR, 'right'); }
+        if (hpTextL) { hpTextL.textContent = Math.round(hpPctL) + '%'; hpTextL.style.color = this._hpColor(hpPctL); }
+        if (hpTextR) { hpTextR.textContent = Math.round(hpPctR) + '%'; hpTextR.style.color = this._hpColor(hpPctR); }
+        if (stabL) { stabL.textContent = (this.isZh?'士气 ':'Morale ') + Math.round(this.stabilityL) + '%'; stabL.style.color = this.stabilityL < 30 ? '#ef4444' : '#64748b'; }
+        if (stabR) { stabR.textContent = (this.isZh?'士气 ':'Morale ') + Math.round(this.stabilityR) + '%'; stabR.style.color = this.stabilityR < 30 ? '#ef4444' : '#64748b'; }
+
+        // Win probability bar
+        const totalHp = this.hpL + this.hpR;
+        const winL = totalHp > 0 ? (this.hpL / totalHp * 100) : 50;
+        if (winProbL) winProbL.style.width = winL + '%';
     }
 
     _hpColor(hp) {
@@ -465,266 +819,102 @@ class MapBattle {
         return 'linear-gradient(90deg,#7f1d1d,#ef4444,#fca5a5)';
     }
 
-    _pulseCountry(strong) {
-        geoLayer.eachLayer(layer => {
-            const props = layer.feature.properties;
-            let iso = props.ISO_A3;
-            if (iso === '-99' && typeof ISO_FIXES !== 'undefined') iso = ISO_FIXES[props.NAME] || iso;
-            if (iso === this.leftISO) {
-                const base = 0.12 + 0.38 * (this.hpL / 100);
-                layer.setStyle({ fillOpacity: base + (strong ? 0.15 : 0.08) });
-                setTimeout(() => { if (this.running) layer.setStyle({ fillOpacity: base }); }, 200);
-            } else if (iso === this.rightISO) {
-                const base = 0.12 + 0.38 * (this.hpR / 100);
-                layer.setStyle({ fillOpacity: base + (strong ? 0.15 : 0.08) });
-                setTimeout(() => { if (this.running) layer.setStyle({ fillOpacity: base }); }, 200);
-            }
-        });
+    _updatePhaseLabel(text) {
+        const el = document.getElementById('phaseLabel');
+        if (el) el.textContent = text;
     }
 
-    // ===== VICTORY =====
-    _showVictory() {
-        const winISO = this.winner === 'left' ? this.leftISO : this.rightISO;
-        const loseISO = this.winner === 'left' ? this.rightISO : this.leftISO;
-        const winName = this.winner === 'left' ? this.nameL : this.nameR;
-        const loseName = this.winner === 'left' ? this.nameR : this.nameL;
-        const winRatio = this.winner === 'left' ? this.ratioL : this.ratioR;
-        const winCentroid = this.winner === 'left' ? this.centroidL : this.centroidR;
-
-        // Winner territory glows
-        geoLayer.eachLayer(layer => {
-            const props = layer.feature.properties;
-            let iso = props.ISO_A3;
-            if (iso === '-99' && typeof ISO_FIXES !== 'undefined') iso = ISO_FIXES[props.NAME] || iso;
-            if (iso === winISO) {
-                layer.setStyle({ fillColor: MAP_BATTLE_CFG.COLORS.victory, fillOpacity: 0.6, color: '#6ee7b7', weight: 3 });
-            } else if (iso === loseISO) {
-                layer.setStyle({ fillColor: '#1e293b', fillOpacity: 0.25, color: '#334155', weight: 1 });
-            }
-        });
-
-        // Victory shockwave from winner
-        if (winCentroid) {
-            const px = map.latLngToContainerPoint(winCentroid);
-            this.shockwaves.push({ x: px.x, y: px.y, radius: 10, maxRadius: 250, alpha: 0.6, life: 0 });
-            this.shockwaves.push({ x: px.x, y: px.y, radius: 5, maxRadius: 180, alpha: 0.4, life: 0 });
+    _addLog(msg) {
+        this.battleLog.push(msg);
+        const box = document.getElementById('battleLogBox');
+        if (box) {
+            const logs = this.battleLog.slice(-3);
+            box.innerHTML = logs.map((m, i) => {
+                const op = 0.3 + 0.7 * ((i + 1) / logs.length);
+                return `<div style="opacity:${op};transition:opacity 0.4s">${m}</div>`;
+            }).join('');
         }
-
-        // Victory banner
-        let banner = document.getElementById('victoryBanner');
-        if (banner) banner.remove();
-        banner = document.createElement('div');
-        banner.id = 'victoryBanner';
-        banner.style.cssText = `
-            position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) scale(0.3);
-            z-index:750;text-align:center;pointer-events:none;
-            font-family:Inter,system-ui,sans-serif;
-            opacity:0;transition:all 1s cubic-bezier(0.34,1.56,0.64,1);
-        `;
-        const casualtyL = Math.round(this.cumulativeDmgL * this.troopsL / 120);
-        const casualtyR = Math.round(this.cumulativeDmgR * this.troopsR / 120);
-        const fmtK = n => n > 1e6 ? (n/1e6).toFixed(1)+'M' : n > 1000 ? (n/1000).toFixed(0)+'K' : n;
-
-        banner.innerHTML = `
-            <div style="font-size:12px;color:#94a3b8;letter-spacing:4px;text-transform:uppercase;margin-bottom:8px;font-weight:300">
-                ${this.isZh ? '胜 利' : 'V I C T O R Y'}
-            </div>
-            <div style="font-size:48px;font-weight:900;color:${MAP_BATTLE_CFG.COLORS.victory};text-shadow:0 0 60px rgba(52,211,153,0.4),0 2px 20px rgba(0,0,0,0.5);line-height:1">
-                ${winName}
-            </div>
-            <div style="font-size:14px;color:#64748b;margin-top:10px;font-weight:400">
-                ${(winRatio*100).toFixed(1)}% ${this.isZh ? '综合实力' : 'combined strength'}
-            </div>
-            <div style="margin-top:14px;display:flex;justify-content:center;gap:32px;font-size:11px">
-                <div><span style="color:${MAP_BATTLE_CFG.COLORS.blue.main}">${this.nameL}</span><br><span style="color:#64748b">${this.isZh?'伤亡':'casualties'} ${fmtK(casualtyL)}</span></div>
-                <div><span style="color:${MAP_BATTLE_CFG.COLORS.red.main}">${this.nameR}</span><br><span style="color:#64748b">${this.isZh?'伤亡':'casualties'} ${fmtK(casualtyR)}</span></div>
-            </div>
-        `;
-        map.getContainer().appendChild(banner);
-        requestAnimationFrame(() => { banner.style.opacity = '1'; banner.style.transform = 'translate(-50%,-50%) scale(1)'; });
-
-        // Confetti burst
-        if (winCentroid) {
-            const px = map.latLngToContainerPoint(winCentroid);
-            const colors = ['#34d399','#6ee7b7','#f59e0b','#fbbf24','#4f8ff7','#a78bfa','#f06060','#ffffff'];
-            for (let i = 0; i < 50; i++) {
-                const angle = Math.random()*Math.PI*2;
-                const speed = 2 + Math.random()*7;
-                this.sparks.push({
-                    x: px.x + (Math.random()-0.5)*40, y: px.y + (Math.random()-0.5)*40,
-                    vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed - 3,
-                    radius: 1.5 + Math.random()*3, alpha: 1,
-                    color: colors[Math.floor(Math.random()*colors.length)],
-                    type: 'confetti',
-                    rotation: Math.random()*Math.PI*2,
-                    rotSpeed: (Math.random()-0.5)*0.2,
-                });
-            }
-        }
-        this._addLog(this.isZh ? `${winName} 取得决定性胜利！` : `${winName} achieves decisive victory!`);
     }
 
-    _updateVictory(dt) {
-        for (let s of this.sparks) {
-            if (s.type === 'confetti') {
-                s.x += s.vx; s.y += s.vy; s.vy += 0.08;
-                s.vx *= 0.99; s.alpha -= 0.005;
-                s.rotation = (s.rotation||0) + (s.rotSpeed||0);
-            } else if (s.type === 'frag') {
-                s.x += (s.vx||0); s.y += (s.vy||0); s.vy = (s.vy||0)+0.08; s.alpha -= 0.015;
-            } else { s.radius += 1.5; s.alpha -= 0.015; }
-        }
-        this.sparks = this.sparks.filter(s => s.alpha > 0);
-        for (let sw of this.shockwaves) { sw.radius += 2; sw.alpha -= 0.006; }
-        this.shockwaves = this.shockwaves.filter(sw => sw.alpha > 0);
-    }
-
-    // ===== RENDER =====
+    // ===== RENDER (Canvas overlay for frontline + effects) =====
     _render() {
         if (!this.ctx) return;
         const ctx = this.ctx;
         ctx.clearRect(0, 0, this.cW, this.cH);
 
-        // Hit flash overlay
-        if (this.hitFlash > 0) {
-            ctx.fillStyle = `rgba(255,255,255,${this.hitFlash})`;
-            ctx.fillRect(0, 0, this.cW, this.cH);
-        }
+        if (this.phase === 'done') return;
 
-        const pxL = this.centroidL ? map.latLngToContainerPoint(this.centroidL) : {x:0,y:0};
-        const pxR = this.centroidR ? map.latLngToContainerPoint(this.centroidR) : {x:0,y:0};
+        const pxL = this.centroidL ? map.latLngToContainerPoint(this.centroidL) : {x:100,y:300};
+        const pxR = this.centroidR ? map.latLngToContainerPoint(this.centroidR) : {x:700,y:300};
 
-        // ---- Energy beam (subtle pulsing line connecting countries) ----
-        if (this.phase === 'battle' || this.phase === 'setup') {
-            const beamAlpha = this.phase === 'setup' ? this.elapsed / MAP_BATTLE_CFG.PHASE_MS.setup * 0.15 : 0.12 + 0.06 * Math.sin(this.beamPhase);
+        // ---- Warzone glow along the frontline ----
+        if (this.phase === 'attrition' || this.phase === 'collapse') {
+            const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
+            const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
+
+            // Frontline fire glow
+            const intensity = this.phase === 'collapse' ? 0.35 : 0.18;
+            const pulse = 0.6 + 0.4 * Math.sin(this.borderFlashPhase * 4);
+            const radius = this.phase === 'collapse' ? 80 : 50;
+
+            const grad = ctx.createRadialGradient(midX, midY, 0, midX, midY, radius * pulse);
+            grad.addColorStop(0, `rgba(245,158,11,${intensity * pulse})`);
+            grad.addColorStop(0.4, `rgba(239,68,68,${intensity * 0.5 * pulse})`);
+            grad.addColorStop(1, 'rgba(245,158,11,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(midX, midY, radius * pulse, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Connecting line (battle axis)
             ctx.save();
             ctx.beginPath();
             ctx.moveTo(pxL.x, pxL.y);
-            // Slight curve
-            const cpx = (pxL.x+pxR.x)/2, cpy = (pxL.y+pxR.y)/2 - 20;
-            ctx.quadraticCurveTo(cpx, cpy, pxR.x, pxR.y);
-            ctx.strokeStyle = `rgba(245,158,11,${beamAlpha})`;
-            ctx.lineWidth = 2 + Math.sin(this.beamPhase*1.5)*0.8;
-            ctx.shadowColor = 'rgba(245,158,11,0.3)';
-            ctx.shadowBlur = 12;
+            ctx.lineTo(pxR.x, pxR.y);
+            ctx.strokeStyle = `rgba(245,158,11,${0.06 + 0.04 * pulse})`;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([8, 6]);
             ctx.stroke();
-            ctx.shadowBlur = 0;
+            ctx.setLineDash([]);
             ctx.restore();
-        }
 
-        // ---- Origin glow (pulsing circles at country centroids) ----
-        if (this.phase === 'battle') {
-            const pulse = 0.5 + 0.5*Math.sin(this.beamPhase*2);
-            // Left origin
-            const glowL = ctx.createRadialGradient(pxL.x, pxL.y, 0, pxL.x, pxL.y, 35+pulse*10);
-            glowL.addColorStop(0, `rgba(79,143,247,${0.2+pulse*0.1})`);
-            glowL.addColorStop(1, 'rgba(79,143,247,0)');
-            ctx.fillStyle = glowL;
-            ctx.beginPath(); ctx.arc(pxL.x, pxL.y, 45+pulse*10, 0, Math.PI*2); ctx.fill();
-            // Right origin
-            const glowR = ctx.createRadialGradient(pxR.x, pxR.y, 0, pxR.x, pxR.y, 35+pulse*10);
-            glowR.addColorStop(0, `rgba(240,96,96,${0.2+pulse*0.1})`);
-            glowR.addColorStop(1, 'rgba(240,96,96,0)');
-            ctx.fillStyle = glowR;
-            ctx.beginPath(); ctx.arc(pxR.x, pxR.y, 45+pulse*10, 0, Math.PI*2); ctx.fill();
-        }
-
-        // ---- Particle trails (gradient fade) ----
-        for (const p of this.particles) {
-            if (!p.alive || p.trail.length < 2) continue;
+            // Frontline marker
             ctx.beginPath();
-            ctx.moveTo(p.trail[0].x, p.trail[0].y);
-            for (let i = 1; i < p.trail.length; i++) ctx.lineTo(p.trail[i].x, p.trail[i].y);
-            ctx.strokeStyle = p.color;
-            ctx.lineWidth = p.size * 0.7;
-            ctx.globalAlpha = 0.25;
-            ctx.lineCap = 'round';
-            ctx.stroke();
-        }
-
-        // ---- Particles (core + glow + bright center) ----
-        for (const p of this.particles) {
-            if (!p.alive) continue;
-            // Outer glow
-            ctx.globalAlpha = 0.12;
-            ctx.beginPath(); ctx.arc(p.x, p.y, p.size*3, 0, Math.PI*2);
-            ctx.fillStyle = p.glow; ctx.fill();
-            // Mid glow
-            ctx.globalAlpha = 0.35;
-            ctx.beginPath(); ctx.arc(p.x, p.y, p.size*1.5, 0, Math.PI*2);
-            ctx.fillStyle = p.color; ctx.fill();
-            // Bright core
-            ctx.globalAlpha = 0.95;
-            ctx.beginPath(); ctx.arc(p.x, p.y, p.size*0.7, 0, Math.PI*2);
-            ctx.fillStyle = p.ultra || '#fff'; ctx.fill();
-        }
-        ctx.globalAlpha = 1;
-
-        // ---- Shockwaves ----
-        for (const sw of this.shockwaves) {
-            ctx.beginPath();
-            ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI*2);
-            ctx.strokeStyle = `rgba(245,158,11,${sw.alpha*0.6})`;
-            ctx.lineWidth = 2.5;
-            ctx.stroke();
-            // Inner fill
-            ctx.beginPath();
-            ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI*2);
-            ctx.fillStyle = `rgba(245,158,11,${sw.alpha*0.05})`;
+            ctx.arc(midX, midY, 4, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(245,158,11,${0.5 + 0.3 * pulse})`;
             ctx.fill();
-        }
 
-        // ---- Sparks ----
-        for (const s of this.sparks) {
-            ctx.globalAlpha = Math.max(0, s.alpha);
-            if (s.type === 'ring') {
-                ctx.beginPath(); ctx.arc(s.x, s.y, s.radius, 0, Math.PI*2);
-                ctx.strokeStyle = s.color; ctx.lineWidth = 1.5; ctx.stroke();
-            } else if (s.type === 'confetti') {
-                ctx.save();
-                ctx.translate(s.x, s.y);
-                ctx.rotate(s.rotation || 0);
-                ctx.fillStyle = s.color;
-                ctx.fillRect(-s.radius, -s.radius*0.5, s.radius*2, s.radius);
-                ctx.restore();
-            } else {
-                ctx.beginPath(); ctx.arc(s.x, s.y, s.radius, 0, Math.PI*2);
-                ctx.fillStyle = s.color; ctx.fill();
+            // Small embers near frontline
+            if (this.phase === 'attrition' || this.phase === 'collapse') {
+                const emberCount = this.phase === 'collapse' ? 6 : 3;
+                for (let i = 0; i < emberCount; i++) {
+                    const angle = (this.borderFlashPhase * 2 + i * 1.2) % (Math.PI * 2);
+                    const dist = 15 + Math.sin(this.borderFlashPhase * 3 + i) * 20;
+                    const ex = midX + Math.cos(angle) * dist;
+                    const ey = midY + Math.sin(angle) * dist;
+                    const eSize = 1.5 + Math.random() * 2;
+                    const eAlpha = 0.3 + Math.random() * 0.4;
+                    ctx.beginPath();
+                    ctx.arc(ex, ey, eSize, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(245,158,11,${eAlpha})`;
+                    ctx.fill();
+                }
             }
         }
-        ctx.globalAlpha = 1;
 
-        // ---- Frontline glow ----
-        if (this.phase === 'battle') {
-            const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
-            const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
-            const pulse = 0.4 + 0.6*Math.sin(this.beamPhase*3);
-            const grad = ctx.createRadialGradient(midX, midY, 0, midX, midY, 40+pulse*20);
-            grad.addColorStop(0, `rgba(245,158,11,${0.18*pulse})`);
-            grad.addColorStop(0.5, `rgba(245,158,11,${0.06*pulse})`);
-            grad.addColorStop(1, 'rgba(245,158,11,0)');
+        // ---- Collapse: screen edge vignette in red ----
+        if (this.phase === 'collapse') {
+            const collapseProgress = this.elapsed / MAP_BATTLE_CFG.PHASE_MS.collapse;
+            const vignetteAlpha = collapseProgress * 0.12;
+            const grad = ctx.createRadialGradient(this.cW/2, this.cH/2, this.cW*0.3, this.cW/2, this.cH/2, this.cW*0.7);
+            grad.addColorStop(0, 'rgba(0,0,0,0)');
+            grad.addColorStop(1, `rgba(239,68,68,${vignetteAlpha})`);
             ctx.fillStyle = grad;
-            ctx.beginPath(); ctx.arc(midX, midY, 60+pulse*20, 0, Math.PI*2); ctx.fill();
+            ctx.fillRect(0, 0, this.cW, this.cH);
         }
-
-        // ---- Damage numbers (with scale) ----
-        ctx.textAlign = 'center';
-        for (const d of this.damageNums) {
-            ctx.save();
-            ctx.globalAlpha = d.alpha;
-            ctx.translate(d.x, d.y);
-            ctx.scale(d.scale, d.scale);
-            ctx.font = 'bold 13px Inter,system-ui,sans-serif';
-            ctx.shadowColor = 'rgba(0,0,0,0.9)';
-            ctx.shadowBlur = 6;
-            ctx.fillStyle = d.color;
-            ctx.fillText(d.text, 0, 0);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-        ctx.globalAlpha = 1;
     }
 
+    // ===== CLEANUP =====
     _cleanup() {
         if (this.canvas?.parentNode) this.canvas.parentNode.removeChild(this.canvas);
         const hud = document.getElementById('battleHUD');
@@ -737,8 +927,7 @@ class MapBattle {
     }
 }
 
-// ===== VS MODAL (preserved) =====
-
+// ===== VS MODAL (preserved from v140) =====
 let activeMapBattle = null;
 let vsModalCountries = [null, null];
 let vsModalSlot = 0;
@@ -847,7 +1036,7 @@ function launchMapBattle(isoL, isoR) {
     };
     if (activeMapBattle) activeMapBattle.stop();
     activeMapBattle = new MapBattle(isoL, isoR, year, data);
-    activeMapBattle.start((winner) => { activeMapBattle = null; });
+    activeMapBattle.start((winner, stats) => { activeMapBattle = null; });
 }
 
 function setupVsSearch(inputId, dropId, selectedId, slotIdx) {
