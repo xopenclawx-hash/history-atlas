@@ -158,9 +158,82 @@ class MapBattle {
         this.winner = (roll < this.winChanceL + (Math.random() - 0.5) * 0.1) ? 'left' : 'right';
         this.loser = this.winner === 'left' ? 'right' : 'left';
 
-        // Frontline position (0 = at left country, 1 = at right country, 0.5 = center)
+        // ===== MULTI-FRONT SYSTEM =====
+        // Number of fronts based on population + NPI + era
+        // Ancient: 2-3 fronts, Modern: 3-5 fronts
+        // More powerful nations can open more fronts
+        const avgCp = (this.cpL + this.cpR) / 2;
+        const baseFronts = year < 1500 ? 2 : 3;
+        const extraFronts = Math.floor(Math.log10(Math.max(popL, popR)) - 5); // +1 per order of magnitude above 100K
+        this.numFronts = Math.max(2, Math.min(5, baseFronts + Math.max(0, extraFronts)));
+
+        // Front names
+        const frontNamesEn = ['Northern', 'North-Central', 'Central', 'South-Central', 'Southern'];
+        const frontNamesZh = ['北线', '东北线', '中线', '东南线', '南线'];
+        // For 2 fronts: Northern/Southern; 3: N/C/S; etc.
+        const nameIndices = this.numFronts === 2 ? [0, 4] :
+                            this.numFronts === 3 ? [0, 2, 4] :
+                            this.numFronts === 4 ? [0, 1, 3, 4] :
+                            [0, 1, 2, 3, 4];
+
+        // Centroids
+        this.centroidL = getCountryCentroid(leftISO);
+        this.centroidR = getCountryCentroid(rightISO);
+
+        // Create fronts
+        // Each front is a separate axis, spread perpendicular to the main L→R axis
+        this.fronts = [];
+        const mobilRateDisp = year > 1900 ? 0.015 : (year > 1500 ? 0.025 : 0.04);
+        const totalTroopsL = Math.max(5000, Math.round((popL) * mobilRateDisp));
+        const totalTroopsR = Math.max(5000, Math.round((popR) * mobilRateDisp));
+
+        // Distribute troops across fronts: main thrust gets more
+        // Pattern: main thrust 40%, flanks split the rest
+        const troopDistribution = this._getTroopDistribution(this.numFronts);
+
+        for (let i = 0; i < this.numFronts; i++) {
+            const ni = nameIndices[i];
+            const troopRatio = troopDistribution[i];
+            const troopsL = Math.round(totalTroopsL * troopRatio);
+            const troopsR = Math.round(totalTroopsR * troopRatio);
+
+            // Strength per front (based on overall CP × troop ratio + small variance)
+            const variance = 0.85 + Math.random() * 0.3; // 0.85-1.15
+            const frontCpL = this.cpL * troopRatio * variance;
+            const frontCpR = this.cpR * troopRatio * (2 - variance); // inverse variance
+
+            this.fronts.push({
+                id: i,
+                nameEn: frontNamesEn[ni],
+                nameZh: frontNamesZh[ni],
+                // Perpendicular offset: -1 to +1
+                offset: this.numFronts === 1 ? 0 : (i / (this.numFronts - 1)) * 2 - 1,
+                // Troops
+                troopsL, troopsR,
+                troopsLStart: troopsL, troopsRStart: troopsR,
+                // Combat power for this front
+                cpL: frontCpL, cpR: frontCpR,
+                maxCpL: frontCpL, maxCpR: frontCpR,
+                // Independent frontline position (0.5 = center)
+                frontline: 0.5,
+                targetFrontline: 0.5,
+                // Status: active, breached, collapsed
+                statusL: 'active', statusR: 'active',
+                // Front-specific winner (main thrust more likely to break through)
+                localWinner: null,
+                // Visual: fire intensity
+                fireIntensity: 0.5 + Math.random() * 0.5,
+            });
+        }
+
+        // Total troop tracking
+        this.troopsLStart = totalTroopsL;
+        this.troopsRStart = totalTroopsR;
+        this.troopsL = totalTroopsL;
+        this.troopsR = totalTroopsR;
+
+        // Global frontline (average of all fronts)
         this.frontline = 0.5;
-        this.targetFrontline = 0.5;
 
         // Collapse triggered?
         this.collapseTriggered = false;
@@ -175,10 +248,6 @@ class MapBattle {
 
         // Tick accumulator
         this.tickAccum = 0;
-
-        // Centroids
-        this.centroidL = getCountryCentroid(leftISO);
-        this.centroidR = getCountryCentroid(rightISO);
 
         // Map state
         this.savedStyles = new Map();
@@ -205,15 +274,7 @@ class MapBattle {
         this.era = year < 500 ? 'ancient' : (year < 1500 ? 'medieval' : 'modern');
 
         // Era-specific troop types for display
-        this.troopTypesL = this._getTroopTypes(year);
-        this.troopTypesR = this._getTroopTypes(year);
-
-        // Troop counts
-        const mobilRateDisp = year > 1900 ? 0.015 : (year > 1500 ? 0.025 : 0.04);
-        this.troopsL = Math.max(5000, Math.round((data.left.pop || 100000) * mobilRateDisp));
-        this.troopsR = Math.max(5000, Math.round((data.right.pop || 100000) * mobilRateDisp));
-        this.troopsLStart = this.troopsL;
-        this.troopsRStart = this.troopsR;
+        this.troopTypes = this._getTroopTypes(year);
 
         // Floating damage numbers
         this.floatingNums = [];
@@ -225,7 +286,48 @@ class MapBattle {
         this.smokeParticles = [];
     }
 
-    // ===== START =====
+    _getTroopDistribution(numFronts) {
+        // Main thrust gets more troops. Pattern varies.
+        switch(numFronts) {
+            case 2: return [0.55, 0.45];
+            case 3: return [0.25, 0.45, 0.30]; // center is main
+            case 4: return [0.20, 0.35, 0.25, 0.20];
+            case 5: return [0.15, 0.20, 0.30, 0.20, 0.15];
+            default: return [0.50, 0.50];
+        }
+    }
+
+    _getFrontPixelPos(front) {
+        // Convert front to screen position
+        // Fronts spread perpendicular to L→R axis
+        const pxL = this.centroidL ? map.latLngToContainerPoint(this.centroidL) : {x:100,y:300};
+        const pxR = this.centroidR ? map.latLngToContainerPoint(this.centroidR) : {x:700,y:300};
+
+        // Perpendicular direction
+        const dx = pxR.x - pxL.x;
+        const dy = pxR.y - pxL.y;
+        const len = Math.sqrt(dx*dx + dy*dy) || 1;
+        const perpX = -dy / len;
+        const perpY = dx / len;
+
+        // Spread distance: proportional to distance between countries
+        const spread = Math.min(len * 0.35, 120);
+        const offsetX = perpX * front.offset * spread;
+        const offsetY = perpY * front.offset * spread;
+
+        // Front line position along the L→R axis
+        const fx = pxL.x + dx * front.frontline + offsetX;
+        const fy = pxL.y + dy * front.frontline + offsetY;
+
+        // Army positions (left army and right army for this front)
+        const armyLx = pxL.x + dx * 0.15 + offsetX;
+        const armyLy = pxL.y + dy * 0.15 + offsetY;
+        const armyRx = pxL.x + dx * 0.85 + offsetX;
+        const armyRy = pxL.y + dy * 0.85 + offsetY;
+
+        return { fx, fy, armyLx, armyLy, armyRx, armyRy, offsetX, offsetY };
+    }
+
     _getTroopTypes(year) {
         if (year < 500) return [
             { icon: '\u2694', name: 'Infantry', zh: '步兵', ratio: 0.50 },
@@ -562,98 +664,142 @@ class MapBattle {
     }
 
     _combatTick(progress) {
-        // Each side deals damage based on their current strength
         const stabMultL = this.stabilityL / 100;
         const stabMultR = this.stabilityR / 100;
+        let totalDmgToL = 0, totalDmgToR = 0;
+        let totalTroopLossL = 0, totalTroopLossR = 0;
 
-        // Damage dealt by each side (affected by their own stability)
-        const baseDmgL = (this.cpL / 100) * 1.8 * stabMultL; // L deals to R
-        const baseDmgR = (this.cpR / 100) * 1.8 * stabMultR; // R deals to L
+        // ===== PER-FRONT COMBAT =====
+        for (const front of this.fronts) {
+            if (front.statusL === 'collapsed' && front.statusR === 'collapsed') continue;
 
-        // ±5% fluctuation
-        const fluctL = 1 + (Math.random() - 0.5) * 2 * MAP_BATTLE_CFG.FLUCTUATION;
-        const fluctR = 1 + (Math.random() - 0.5) * 2 * MAP_BATTLE_CFG.FLUCTUATION;
+            // Each front fights independently
+            const fCpL = front.cpL / front.maxCpL;
+            const fCpR = front.cpR / front.maxCpR;
 
-        const dmgToR = baseDmgL * fluctL;
-        const dmgToL = baseDmgR * fluctR;
+            // Damage based on front strength × stability
+            const dmgL = (front.cpL / 100) * 2.0 * stabMultL * (1 + (Math.random()-0.5)*0.1);
+            const dmgR = (front.cpR / 100) * 2.0 * stabMultR * (1 + (Math.random()-0.5)*0.1);
 
-        this.hpL = Math.max(2, this.hpL - dmgToL);
-        this.hpR = Math.max(2, this.hpR - dmgToR);
+            front.cpR = Math.max(0.5, front.cpR - dmgL);
+            front.cpL = Math.max(0.5, front.cpL - dmgR);
 
-        // Stability decay (loser decays faster)
-        const hpRatioL = this.hpL / this.maxHpL;
-        const hpRatioR = this.hpR / this.maxHpR;
+            // Troop losses per front
+            const tLossL = (dmgR / front.maxCpL) * front.troopsLStart * 0.6;
+            const tLossR = (dmgL / front.maxCpR) * front.troopsRStart * 0.6;
+            front.troopsL = Math.max(50, front.troopsL - tLossL);
+            front.troopsR = Math.max(50, front.troopsR - tLossR);
 
-        // Stability drops faster when losing
-        const stabDecayL = hpRatioL < 0.5 ? 2.5 : 1.0;
-        const stabDecayR = hpRatioR < 0.5 ? 2.5 : 1.0;
+            totalDmgToL += dmgR;
+            totalDmgToR += dmgL;
+            totalTroopLossL += tLossL;
+            totalTroopLossR += tLossR;
 
-        this.stabilityL = Math.max(0, this.stabilityL - (1 - hpRatioL) * stabDecayL * 1.2);
-        this.stabilityR = Math.max(0, this.stabilityR - (1 - hpRatioR) * stabDecayR * 1.2);
+            // Front-line movement based on local strength ratio
+            const localRatio = front.cpL / (front.cpL + front.cpR + 0.001);
+            const wave = Math.sin(progress * Math.PI * 4 + front.id * 1.5) * 0.02 * (1-progress);
+            front.targetFrontline = 1 - localRatio + wave;
+            front.frontline += (front.targetFrontline - front.frontline) * 0.03;
 
-        // Population loss proportional to damage
-        const popL = this.data.left.pop || 100000;
-        const popR = this.data.right.pop || 100000;
-        this.popLossL += (dmgToL / this.maxHpL) * popL * 0.005;
-        this.popLossR += (dmgToR / this.maxHpR) * popR * 0.005;
-
-        // Resource consumption
-        this.resourcesConsumed += (dmgToL + dmgToR) * 0.1;
-
-        // Troop losses proportional to HP loss
-        const troopLossL = (dmgToL / this.maxHpL) * this.troopsLStart * 0.8;
-        const troopLossR = (dmgToR / this.maxHpR) * this.troopsRStart * 0.8;
-        this.troopsL = Math.max(100, this.troopsL - troopLossL);
-        this.troopsR = Math.max(100, this.troopsR - troopLossR);
-
-        // Spawn floating damage number at frontline
-        if (Math.random() < 0.3) {
-            const pxL = this.centroidL ? map.latLngToContainerPoint(this.centroidL) : {x:100,y:300};
-            const pxR = this.centroidR ? map.latLngToContainerPoint(this.centroidR) : {x:700,y:300};
-            const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
-            const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
-            const loss = Math.round(Math.max(troopLossL, troopLossR));
-            if (loss > 10) {
-                this.floatingNums.push({
-                    x: midX + (Math.random()-0.5)*60,
-                    y: midY + (Math.random()-0.5)*30,
-                    text: '-' + this._fmtTroops(loss),
-                    life: 0, alpha: 1,
-                    color: troopLossL > troopLossR ? MAP_BATTLE_CFG.COLORS.blue.main : MAP_BATTLE_CFG.COLORS.red.main,
-                });
+            // Check if this front is breached (one side < 20%)
+            if (front.cpL / front.maxCpL < 0.2 && front.statusL !== 'breached') {
+                front.statusL = 'breached';
+                front.localWinner = 'right';
+                this._addLog(this.isZh
+                    ? `${front.nameZh}：${this.nameL} 防线被突破！`
+                    : `${front.nameEn}: ${this.nameL}'s line breached!`);
             }
-        }
+            if (front.cpR / front.maxCpR < 0.2 && front.statusR !== 'breached') {
+                front.statusR = 'breached';
+                front.localWinner = 'left';
+                this._addLog(this.isZh
+                    ? `${front.nameZh}：${this.nameR} 防线被突破！`
+                    : `${front.nameEn}: ${this.nameR}'s line breached!`);
+            }
 
-        // Spawn fire particles at frontline
-        if (this.centroidL && this.centroidR) {
-            const pxL = map.latLngToContainerPoint(this.centroidL);
-            const pxR = map.latLngToContainerPoint(this.centroidR);
-            const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
-            const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
-            for (let i = 0; i < 2; i++) {
+            // Spawn fire at each front
+            const pos = this._getFrontPixelPos(front);
+            const fireCount = 1 + Math.floor(front.fireIntensity * (this.phase === 'collapse' ? 3 : 1));
+            for (let i = 0; i < fireCount; i++) {
                 this.fireParticles.push({
-                    x: midX + (Math.random()-0.5)*80,
-                    y: midY + (Math.random()-0.5)*40,
+                    x: pos.fx + (Math.random()-0.5)*50,
+                    y: pos.fy + (Math.random()-0.5)*25,
                     vx: (Math.random()-0.5)*0.5,
                     vy: -0.5 - Math.random()*1.5,
-                    size: 2 + Math.random()*4,
-                    life: 0, maxLife: 0.8 + Math.random()*0.6,
+                    size: 2 + Math.random()*3,
+                    life: 0, maxLife: 0.7 + Math.random()*0.5,
                 });
             }
             // Smoke
-            if (Math.random() < 0.3) {
+            if (Math.random() < 0.2) {
                 this.smokeParticles.push({
-                    x: midX + (Math.random()-0.5)*100,
-                    y: midY + (Math.random()-0.5)*50,
+                    x: pos.fx + (Math.random()-0.5)*60,
+                    y: pos.fy + (Math.random()-0.5)*30,
                     vx: (Math.random()-0.5)*0.3,
                     vy: -0.3 - Math.random()*0.5,
-                    size: 8 + Math.random()*12,
-                    life: 0, maxLife: 2 + Math.random(),
+                    size: 6 + Math.random()*10,
+                    life: 0, maxLife: 1.5 + Math.random(),
                 });
+            }
+
+            // Floating damage for this front
+            if (Math.random() < 0.15) {
+                const loss = Math.round(Math.max(tLossL, tLossR));
+                if (loss > 10) {
+                    this.floatingNums.push({
+                        x: pos.fx + (Math.random()-0.5)*40,
+                        y: pos.fy + (Math.random()-0.5)*20,
+                        text: '-' + this._fmtTroops(loss),
+                        life: 0, alpha: 1,
+                        color: tLossL > tLossR ? MAP_BATTLE_CFG.COLORS.blue.main : MAP_BATTLE_CFG.COLORS.red.main,
+                    });
+                }
             }
         }
 
-        // Update real-time win probability
+        // ===== GLOBAL AGGREGATION =====
+        // HP from averaged front CPs
+        let sumCpL = 0, sumCpR = 0, sumMaxL = 0, sumMaxR = 0;
+        for (const f of this.fronts) {
+            sumCpL += f.cpL; sumCpR += f.cpR;
+            sumMaxL += f.maxCpL; sumMaxR += f.maxCpR;
+        }
+        this.hpL = (sumCpL / sumMaxL) * this.maxHpL;
+        this.hpR = (sumCpR / sumMaxR) * this.maxHpR;
+
+        // Total troops
+        this.troopsL = this.fronts.reduce((s, f) => s + f.troopsL, 0);
+        this.troopsR = this.fronts.reduce((s, f) => s + f.troopsR, 0);
+
+        // Global frontline = weighted average
+        const totalWeight = this.fronts.reduce((s, f) => s + f.troopsLStart + f.troopsRStart, 0) || 1;
+        this.frontline = this.fronts.reduce((s, f) => {
+            const w = (f.troopsLStart + f.troopsRStart) / totalWeight;
+            return s + f.frontline * w;
+        }, 0);
+
+        // Stability decay
+        const hpRatioL = this.hpL / this.maxHpL;
+        const hpRatioR = this.hpR / this.maxHpR;
+        const breachedCountL = this.fronts.filter(f => f.statusL === 'breached').length;
+        const breachedCountR = this.fronts.filter(f => f.statusR === 'breached').length;
+
+        // Each breached front accelerates stability loss
+        const stabDecayL = (hpRatioL < 0.5 ? 2.5 : 1.0) * (1 + breachedCountL * 0.5);
+        const stabDecayR = (hpRatioR < 0.5 ? 2.5 : 1.0) * (1 + breachedCountR * 0.5);
+
+        this.stabilityL = Math.max(0, this.stabilityL - (1 - hpRatioL) * stabDecayL * 1.0);
+        this.stabilityR = Math.max(0, this.stabilityR - (1 - hpRatioR) * stabDecayR * 1.0);
+
+        // Pop loss
+        const popL = this.data.left.pop || 100000;
+        const popR = this.data.right.pop || 100000;
+        this.popLossL += (totalDmgToL / this.maxHpL) * popL * 0.003;
+        this.popLossR += (totalDmgToR / this.maxHpR) * popR * 0.003;
+
+        this.resourcesConsumed += (totalDmgToL + totalDmgToR) * 0.1;
+
+        // Win probability
         const totalHp = this.hpL + this.hpR;
         const currentWinL = totalHp > 0 ? this.hpL / totalHp : 0.5;
         this.winProbHistory.push(currentWinL);
@@ -713,48 +859,45 @@ class MapBattle {
         const logCount = this.battleLog.length;
         const winnerName = this.winner === 'left' ? this.nameL : this.nameR;
         const loserName = this.winner === 'left' ? this.nameR : this.nameL;
+        // Find the front with most troops (main thrust)
+        const mainFront = this.fronts.reduce((best, f) => (f.troopsLStart + f.troopsRStart) > (best.troopsLStart + best.troopsRStart) ? f : best, this.fronts[0]);
+        const mainName = this.isZh ? mainFront.nameZh : mainFront.nameEn;
 
-        if (progress > 0.15 && logCount < 2) {
-            const msgs = {
-                ancient: {
-                    zh: `${winnerName} 的战车部队率先发起冲锋`,
-                    en: `${winnerName}'s chariot forces charge first`
-                },
-                medieval: {
-                    zh: `${winnerName} 的骑兵向侧翼发起猛攻`,
-                    en: `${winnerName}'s cavalry flanks the enemy`
-                },
-                modern: {
-                    zh: `${winnerName} 在空中取得制空权`,
-                    en: `${winnerName} establishes air superiority`
-                }
-            };
-            const m = msgs[this.era];
-            this._addLog(this.isZh ? m.zh : m.en);
-        }
-        if (progress > 0.35 && logCount < 3) {
+        if (progress > 0.12 && logCount < 2) {
             this._addLog(this.isZh
-                ? `${loserName} 的补给线受到严重威胁`
-                : `${loserName}'s supply lines are under threat`);
+                ? `${winnerName} 在${mainName}发起主攻，${this.numFronts}路大军同时推进`
+                : `${winnerName} launches main attack on ${mainName}, ${this.numFronts} fronts advance`);
         }
-        if (progress > 0.55 && logCount < 4) {
-            const hpRatioLoser = this.winner === 'left' ? this.hpR/this.maxHpR : this.hpL/this.maxHpL;
-            if (hpRatioLoser < 0.6) {
+        if (progress > 0.30 && logCount < 3) {
+            // Report on flanks
+            const flank = this.fronts.find(f => f !== mainFront);
+            if (flank) {
+                const fn = this.isZh ? flank.nameZh : flank.nameEn;
                 this._addLog(this.isZh
-                    ? `战场局势逐渐明朗，${loserName} 伤亡惨重`
-                    : `The tide turns. ${loserName} suffers heavy losses`);
-            } else {
-                this._addLog(this.isZh
-                    ? `双方陷入胶着，消耗战持续中`
-                    : `Both sides locked in a war of attrition`);
+                    ? `${fn}侧翼战斗激烈，双方争夺控制权`
+                    : `Fierce fighting on ${fn} flank, both sides contest control`);
             }
         }
-        if (progress > 0.75 && logCount < 5) {
+        if (progress > 0.50 && logCount < 4) {
+            const breachedFronts = this.fronts.filter(f =>
+                (this.winner === 'left' ? f.statusR : f.statusL) === 'breached'
+            );
+            if (breachedFronts.length > 0) {
+                this._addLog(this.isZh
+                    ? `${loserName} 已有${breachedFronts.length}条战线被突破！`
+                    : `${breachedFronts.length} of ${loserName}'s fronts breached!`);
+            } else {
+                this._addLog(this.isZh
+                    ? `各条战线胶着，消耗战持续中`
+                    : `All fronts locked in attrition`);
+            }
+        }
+        if (progress > 0.70 && logCount < 5) {
             const stabLoser = this.winner === 'left' ? this.stabilityR : this.stabilityL;
             if (stabLoser < 50) {
                 this._addLog(this.isZh
-                    ? `${loserName} 军中出现厌战情绪，士气动摇`
-                    : `War-weariness spreads in ${loserName}'s ranks`);
+                    ? `${loserName} 多条战线动摇，全军士气崩溃在即`
+                    : `${loserName}'s multiple fronts waver, army-wide collapse imminent`);
             }
         }
     }
@@ -806,29 +949,21 @@ class MapBattle {
             }
         });
 
-        // Extra fire during collapse
-        if (this.centroidL && this.centroidR) {
-            const pxL = map.latLngToContainerPoint(this.centroidL);
-            const pxR = map.latLngToContainerPoint(this.centroidR);
-            const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
-            const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
-            for (let i = 0; i < 4; i++) {
-                this.fireParticles.push({
-                    x: midX + (Math.random()-0.5)*120,
-                    y: midY + (Math.random()-0.5)*60,
-                    vx: (Math.random()-0.5)*1,
-                    vy: -1 - Math.random()*2,
-                    size: 3 + Math.random()*5,
-                    life: 0, maxLife: 0.6 + Math.random()*0.4,
-                });
-            }
-            // Collapse troop drain
+        // Collapse: all fronts crumble for the loser
+        for (const front of this.fronts) {
             if (this.winner === 'left') {
-                this.troopsR = Math.max(50, this.troopsR * 0.97);
+                front.cpR = Math.max(0, front.cpR * 0.95);
+                front.troopsR = Math.max(10, front.troopsR * 0.96);
+                front.frontline += (0.05) * 0.04;
             } else {
-                this.troopsL = Math.max(50, this.troopsL * 0.97);
+                front.cpL = Math.max(0, front.cpL * 0.95);
+                front.troopsL = Math.max(10, front.troopsL * 0.96);
+                front.frontline -= (0.05) * 0.04;
             }
+            front.frontline = Math.max(0.05, Math.min(0.95, front.frontline));
         }
+        this.troopsL = this.fronts.reduce((s, f) => s + f.troopsL, 0);
+        this.troopsR = this.fronts.reduce((s, f) => s + f.troopsR, 0);
 
         this._updateHUD();
 
@@ -1022,42 +1157,105 @@ class MapBattle {
         const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
         const dt = 16; // approx frame time for particle updates
 
-        // ===== TROOP INFO ON TERRITORIES =====
-        if (this.phase !== 'outbreak') {
-            this._renderTroopInfo(ctx, pxL, 'left');
-            this._renderTroopInfo(ctx, pxR, 'right');
-        }
-
-        // ===== FRONTLINE EFFECTS =====
+        // ===== PER-FRONT RENDERING =====
         if (this.phase === 'attrition' || this.phase === 'collapse') {
             const isCollapse = this.phase === 'collapse';
+            const pulse = 0.6 + 0.4 * Math.sin(this.borderFlashPhase * 4);
 
-            // --- Smoke particles (behind fire) ---
+            // --- Smoke particles (behind everything) ---
             for (let s of this.smokeParticles) {
                 s.x += s.vx; s.y += s.vy;
                 s.life += 0.016;
                 const t = s.life / s.maxLife;
-                const alpha = Math.max(0, 0.15 * (1 - t));
+                const alpha = Math.max(0, 0.12 * (1 - t));
                 ctx.beginPath();
                 ctx.arc(s.x, s.y, s.size * (1 + t*0.5), 0, Math.PI*2);
-                ctx.fillStyle = `rgba(50,50,50,${alpha})`;
+                ctx.fillStyle = `rgba(40,40,40,${alpha})`;
                 ctx.fill();
             }
             this.smokeParticles = this.smokeParticles.filter(s => s.life < s.maxLife);
 
-            // --- Frontline fire zone ---
-            const pulse = 0.6 + 0.4 * Math.sin(this.borderFlashPhase * 4);
-            const fireRadius = isCollapse ? 100 : 60;
+            // --- Each front: axis line, fire zone, troop markers, front label ---
+            for (const front of this.fronts) {
+                const pos = this._getFrontPixelPos(front);
+                const frontName = this.isZh ? front.nameZh : front.nameEn;
+                const fRatioL = front.cpL / front.maxCpL;
+                const fRatioR = front.cpR / front.maxCpR;
 
-            // Glow
-            const glowGrad = ctx.createRadialGradient(midX, midY, 0, midX, midY, fireRadius * pulse);
-            glowGrad.addColorStop(0, `rgba(245,158,11,${isCollapse ? 0.3 : 0.15})`);
-            glowGrad.addColorStop(0.5, `rgba(239,68,68,${isCollapse ? 0.15 : 0.06})`);
-            glowGrad.addColorStop(1, 'rgba(245,158,11,0)');
-            ctx.fillStyle = glowGrad;
-            ctx.beginPath();
-            ctx.arc(midX, midY, fireRadius * pulse, 0, Math.PI*2);
-            ctx.fill();
+                // Dashed axis line for this front
+                const aLx = pxL.x + pos.offsetX, aLy = pxL.y + pos.offsetY;
+                const aRx = pxR.x + pos.offsetX, aRy = pxR.y + pos.offsetY;
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(aLx, aLy);
+                ctx.lineTo(aRx, aRy);
+                ctx.strokeStyle = `rgba(245,158,11,${0.05 + 0.03 * pulse})`;
+                ctx.lineWidth = 0.8;
+                ctx.setLineDash([4, 6]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.restore();
+
+                // Frontline glow
+                const glowR = isCollapse ? 50 : 30;
+                const glowGrad = ctx.createRadialGradient(pos.fx, pos.fy, 0, pos.fx, pos.fy, glowR * pulse);
+                glowGrad.addColorStop(0, `rgba(245,158,11,${isCollapse ? 0.25 : 0.12})`);
+                glowGrad.addColorStop(0.6, `rgba(239,68,68,${isCollapse ? 0.1 : 0.04})`);
+                glowGrad.addColorStop(1, 'rgba(245,158,11,0)');
+                ctx.fillStyle = glowGrad;
+                ctx.beginPath();
+                ctx.arc(pos.fx, pos.fy, glowR * pulse, 0, Math.PI*2);
+                ctx.fill();
+
+                // Frontline dot
+                ctx.beginPath();
+                ctx.arc(pos.fx, pos.fy, 3, 0, Math.PI*2);
+                ctx.fillStyle = `rgba(245,158,11,${0.6 + 0.3 * pulse})`;
+                ctx.fill();
+
+                // Front label
+                ctx.save();
+                ctx.font = '8px Inter,system-ui,sans-serif';
+                ctx.fillStyle = `rgba(245,158,11,${0.35 + 0.15*pulse})`;
+                ctx.textAlign = 'center';
+                ctx.fillText(frontName, pos.fx, pos.fy - 10);
+                ctx.restore();
+
+                // Troop markers near each front (left army)
+                ctx.save();
+                ctx.font = 'bold 10px Inter,system-ui,sans-serif';
+                ctx.textAlign = 'center';
+                // Left army marker
+                const lColor = front.statusL === 'breached' ? '#ef4444' : MAP_BATTLE_CFG.COLORS.blue.main;
+                ctx.fillStyle = 'rgba(8,12,20,0.65)';
+                ctx.beginPath();
+                ctx.roundRect(pos.armyLx - 28, pos.armyLy - 8, 56, 16, 4);
+                ctx.fill();
+                ctx.fillStyle = lColor;
+                ctx.fillText(this._fmtTroops(front.troopsL), pos.armyLx, pos.armyLy + 4);
+
+                // Right army marker
+                const rColor = front.statusR === 'breached' ? '#ef4444' : MAP_BATTLE_CFG.COLORS.red.main;
+                ctx.fillStyle = 'rgba(8,12,20,0.65)';
+                ctx.beginPath();
+                ctx.roundRect(pos.armyRx - 28, pos.armyRy - 8, 56, 16, 4);
+                ctx.fill();
+                ctx.fillStyle = rColor;
+                ctx.fillText(this._fmtTroops(front.troopsR), pos.armyRx, pos.armyRy + 4);
+                ctx.restore();
+
+                // Breach indicator
+                if (front.statusL === 'breached' || front.statusR === 'breached') {
+                    ctx.save();
+                    ctx.font = 'bold 9px Inter,system-ui,sans-serif';
+                    ctx.fillStyle = '#ef4444';
+                    ctx.textAlign = 'center';
+                    const breachSide = front.statusL === 'breached' ? pos.armyLx : pos.armyRx;
+                    const breachY = front.statusL === 'breached' ? pos.armyLy : pos.armyRy;
+                    ctx.fillText(this.isZh ? '突破!' : 'BREACH!', breachSide, breachY - 14);
+                    ctx.restore();
+                }
+            }
 
             // --- Fire particles ---
             for (let f of this.fireParticles) {
@@ -1066,51 +1264,23 @@ class MapBattle {
                 const t = f.life / f.maxLife;
                 const alpha = Math.max(0, 1 - t*t);
                 const size = f.size * (1 - t*0.5);
-
-                // Fire: yellow center → orange → red outer
                 const r = 245, g = Math.round(158 - t*100), b = Math.round(11 + t*50);
                 ctx.beginPath();
                 ctx.arc(f.x, f.y, size, 0, Math.PI*2);
-                ctx.fillStyle = `rgba(${r},${g},${b},${alpha * 0.8})`;
+                ctx.fillStyle = `rgba(${r},${g},${b},${alpha * 0.7})`;
                 ctx.fill();
-
-                // Bright core
                 ctx.beginPath();
-                ctx.arc(f.x, f.y, size*0.4, 0, Math.PI*2);
-                ctx.fillStyle = `rgba(255,255,200,${alpha * 0.6})`;
+                ctx.arc(f.x, f.y, size*0.35, 0, Math.PI*2);
+                ctx.fillStyle = `rgba(255,255,200,${alpha * 0.5})`;
                 ctx.fill();
             }
             this.fireParticles = this.fireParticles.filter(f => f.life < f.maxLife);
+        }
 
-            // --- Battle axis (dashed) ---
-            ctx.save();
-            ctx.beginPath();
-            ctx.moveTo(pxL.x, pxL.y);
-            ctx.lineTo(pxR.x, pxR.y);
-            ctx.strokeStyle = `rgba(245,158,11,${0.08 + 0.04 * pulse})`;
-            ctx.lineWidth = 1;
-            ctx.setLineDash([6, 8]);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.restore();
-
-            // --- Frontline marker ---
-            ctx.beginPath();
-            ctx.arc(midX, midY, 5, 0, Math.PI*2);
-            ctx.fillStyle = `rgba(245,158,11,${0.6 + 0.3 * pulse})`;
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(midX, midY, 2, 0, Math.PI*2);
-            ctx.fillStyle = `rgba(255,255,200,0.8)`;
-            ctx.fill();
-
-            // --- "FRONT LINE" label ---
-            ctx.save();
-            ctx.font = '9px Inter,system-ui,sans-serif';
-            ctx.fillStyle = `rgba(245,158,11,${0.4 + 0.2*pulse})`;
-            ctx.textAlign = 'center';
-            ctx.fillText(this.isZh ? '前线' : 'FRONT', midX, midY - 12);
-            ctx.restore();
+        // ===== TOTAL TROOP INFO ON TERRITORIES (outbreak shows initial deployment) =====
+        if (this.phase !== 'done') {
+            this._renderTroopSummary(ctx, pxL, 'left');
+            this._renderTroopSummary(ctx, pxR, 'right');
         }
 
         // ===== FLOATING DAMAGE NUMBERS =====
@@ -1143,22 +1313,24 @@ class MapBattle {
         }
     }
 
-    // ===== TROOP INFO OVERLAY ON COUNTRY =====
-    _renderTroopInfo(ctx, px, side) {
+    // ===== TROOP SUMMARY OVERLAY ON COUNTRY =====
+    _renderTroopSummary(ctx, px, side) {
         const troops = side === 'left' ? this.troopsL : this.troopsR;
-        const troopsStart = side === 'left' ? this.troopsLStart : this.troopsRStart;
-        const types = side === 'left' ? this.troopTypesL : this.troopTypesR;
+        const types = this.troopTypes;
         const color = side === 'left' ? MAP_BATTLE_CFG.COLORS.blue : MAP_BATTLE_CFG.COLORS.red;
         const hp = side === 'left' ? this.hpL / this.maxHpL : this.hpR / this.maxHpR;
-        const stability = side === 'left' ? this.stabilityL : this.stabilityR;
+        const name = side === 'left' ? this.nameL : this.nameR;
+        const numFrontsActive = this.fronts.filter(f =>
+            side === 'left' ? f.statusL !== 'collapsed' : f.statusR !== 'collapsed'
+        ).length;
 
         ctx.save();
 
-        // Background card on territory
-        const cardW = 110, cardH = 56 + types.length * 13;
+        // Compact card
+        const cardW = 100, cardH = 42;
         const cx = px.x - cardW/2, cy = px.y - cardH/2;
-        ctx.fillStyle = 'rgba(8,12,20,0.75)';
-        ctx.strokeStyle = `rgba(${side==='left'?'79,143,247':'240,96,96'},0.3)`;
+        ctx.fillStyle = 'rgba(8,12,20,0.7)';
+        ctx.strokeStyle = `rgba(${side==='left'?'79,143,247':'240,96,96'},0.25)`;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.roundRect(cx, cy, cardW, cardH, 6);
@@ -1166,33 +1338,27 @@ class MapBattle {
         ctx.stroke();
 
         // Total troops
-        ctx.font = 'bold 14px Inter,system-ui,sans-serif';
+        ctx.font = 'bold 13px Inter,system-ui,sans-serif';
         ctx.fillStyle = color.main;
         ctx.textAlign = 'center';
-        ctx.fillText(this._fmtTroops(troops), px.x, cy + 16);
+        ctx.fillText(this._fmtTroops(troops), px.x, cy + 15);
 
-        // Troop breakdown
-        ctx.font = '10px Inter,system-ui,sans-serif';
-        types.forEach((t, i) => {
-            const count = Math.round(troops * t.ratio);
-            const label = this.isZh ? t.zh : t.name;
-            const y = cy + 30 + i * 13;
-            ctx.fillStyle = '#64748b';
-            ctx.textAlign = 'left';
-            ctx.fillText(`${t.icon} ${label}`, cx + 6, y);
-            ctx.textAlign = 'right';
-            ctx.fillStyle = '#94a3b8';
-            ctx.fillText(this._fmtTroops(count), cx + cardW - 6, y);
-        });
+        // Active fronts indicator
+        ctx.font = '9px Inter,system-ui,sans-serif';
+        ctx.fillStyle = '#64748b';
+        ctx.fillText(
+            (this.isZh ? `${numFrontsActive}路作战` : `${numFrontsActive} fronts`),
+            px.x, cy + 27
+        );
 
-        // Mini HP bar at bottom of card
-        const barY = cy + cardH - 8;
-        const barW = cardW - 12;
+        // Mini HP bar
+        const barY = cy + cardH - 6;
+        const barW = cardW - 10;
         ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        ctx.fillRect(cx + 6, barY, barW, 4);
+        ctx.fillRect(cx + 5, barY, barW, 3);
         const hpColor = hp > 0.6 ? color.main : (hp > 0.3 ? '#f59e0b' : '#ef4444');
         ctx.fillStyle = hpColor;
-        ctx.fillRect(cx + 6, barY, barW * hp, 4);
+        ctx.fillRect(cx + 5, barY, barW * Math.max(0, hp), 3);
 
         ctx.restore();
     }
