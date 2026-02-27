@@ -203,9 +203,55 @@ class MapBattle {
 
         // Era info for flavor text
         this.era = year < 500 ? 'ancient' : (year < 1500 ? 'medieval' : 'modern');
+
+        // Era-specific troop types for display
+        this.troopTypesL = this._getTroopTypes(year);
+        this.troopTypesR = this._getTroopTypes(year);
+
+        // Troop counts
+        const mobilRateDisp = year > 1900 ? 0.015 : (year > 1500 ? 0.025 : 0.04);
+        this.troopsL = Math.max(5000, Math.round((data.left.pop || 100000) * mobilRateDisp));
+        this.troopsR = Math.max(5000, Math.round((data.right.pop || 100000) * mobilRateDisp));
+        this.troopsLStart = this.troopsL;
+        this.troopsRStart = this.troopsR;
+
+        // Floating damage numbers
+        this.floatingNums = [];
+
+        // Fire particles along frontline
+        this.fireParticles = [];
+
+        // Smoke particles
+        this.smokeParticles = [];
     }
 
     // ===== START =====
+    _getTroopTypes(year) {
+        if (year < 500) return [
+            { icon: '\u2694', name: 'Infantry', zh: '步兵', ratio: 0.50 },
+            { icon: '\uD83C\uDFF9', name: 'Archers', zh: '弓手', ratio: 0.25 },
+            { icon: '\u265E', name: 'Cavalry', zh: '骑兵', ratio: 0.25 },
+        ];
+        if (year < 1500) return [
+            { icon: '\u2694', name: 'Men-at-Arms', zh: '步兵', ratio: 0.35 },
+            { icon: '\u265E', name: 'Knights', zh: '骑士', ratio: 0.30 },
+            { icon: '\uD83C\uDFF9', name: 'Archers', zh: '弓手', ratio: 0.20 },
+            { icon: '\u2656', name: 'Siege', zh: '攻城', ratio: 0.15 },
+        ];
+        return [
+            { icon: '\u2694', name: 'Infantry', zh: '步兵', ratio: 0.35 },
+            { icon: '\u2655', name: 'Armor', zh: '装甲', ratio: 0.25 },
+            { icon: '\u2708', name: 'Air', zh: '空军', ratio: 0.25 },
+            { icon: '\u2693', name: 'Navy', zh: '海军', ratio: 0.15 },
+        ];
+    }
+
+    _fmtTroops(n) {
+        if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+        if (n >= 1e3) return (n/1e3).toFixed(0) + 'K';
+        return String(Math.round(n));
+    }
+
     start(onComplete) {
         this.onComplete = onComplete;
         this.running = true;
@@ -554,6 +600,59 @@ class MapBattle {
         // Resource consumption
         this.resourcesConsumed += (dmgToL + dmgToR) * 0.1;
 
+        // Troop losses proportional to HP loss
+        const troopLossL = (dmgToL / this.maxHpL) * this.troopsLStart * 0.8;
+        const troopLossR = (dmgToR / this.maxHpR) * this.troopsRStart * 0.8;
+        this.troopsL = Math.max(100, this.troopsL - troopLossL);
+        this.troopsR = Math.max(100, this.troopsR - troopLossR);
+
+        // Spawn floating damage number at frontline
+        if (Math.random() < 0.3) {
+            const pxL = this.centroidL ? map.latLngToContainerPoint(this.centroidL) : {x:100,y:300};
+            const pxR = this.centroidR ? map.latLngToContainerPoint(this.centroidR) : {x:700,y:300};
+            const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
+            const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
+            const loss = Math.round(Math.max(troopLossL, troopLossR));
+            if (loss > 10) {
+                this.floatingNums.push({
+                    x: midX + (Math.random()-0.5)*60,
+                    y: midY + (Math.random()-0.5)*30,
+                    text: '-' + this._fmtTroops(loss),
+                    life: 0, alpha: 1,
+                    color: troopLossL > troopLossR ? MAP_BATTLE_CFG.COLORS.blue.main : MAP_BATTLE_CFG.COLORS.red.main,
+                });
+            }
+        }
+
+        // Spawn fire particles at frontline
+        if (this.centroidL && this.centroidR) {
+            const pxL = map.latLngToContainerPoint(this.centroidL);
+            const pxR = map.latLngToContainerPoint(this.centroidR);
+            const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
+            const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
+            for (let i = 0; i < 2; i++) {
+                this.fireParticles.push({
+                    x: midX + (Math.random()-0.5)*80,
+                    y: midY + (Math.random()-0.5)*40,
+                    vx: (Math.random()-0.5)*0.5,
+                    vy: -0.5 - Math.random()*1.5,
+                    size: 2 + Math.random()*4,
+                    life: 0, maxLife: 0.8 + Math.random()*0.6,
+                });
+            }
+            // Smoke
+            if (Math.random() < 0.3) {
+                this.smokeParticles.push({
+                    x: midX + (Math.random()-0.5)*100,
+                    y: midY + (Math.random()-0.5)*50,
+                    vx: (Math.random()-0.5)*0.3,
+                    vy: -0.3 - Math.random()*0.5,
+                    size: 8 + Math.random()*12,
+                    life: 0, maxLife: 2 + Math.random(),
+                });
+            }
+        }
+
         // Update real-time win probability
         const totalHp = this.hpL + this.hpR;
         const currentWinL = totalHp > 0 ? this.hpL / totalHp : 0.5;
@@ -707,6 +806,30 @@ class MapBattle {
             }
         });
 
+        // Extra fire during collapse
+        if (this.centroidL && this.centroidR) {
+            const pxL = map.latLngToContainerPoint(this.centroidL);
+            const pxR = map.latLngToContainerPoint(this.centroidR);
+            const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
+            const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
+            for (let i = 0; i < 4; i++) {
+                this.fireParticles.push({
+                    x: midX + (Math.random()-0.5)*120,
+                    y: midY + (Math.random()-0.5)*60,
+                    vx: (Math.random()-0.5)*1,
+                    vy: -1 - Math.random()*2,
+                    size: 3 + Math.random()*5,
+                    life: 0, maxLife: 0.6 + Math.random()*0.4,
+                });
+            }
+            // Collapse troop drain
+            if (this.winner === 'left') {
+                this.troopsR = Math.max(50, this.troopsR * 0.97);
+            } else {
+                this.troopsL = Math.max(50, this.troopsL * 0.97);
+            }
+        }
+
         this._updateHUD();
 
         // Collapse log
@@ -742,6 +865,10 @@ class MapBattle {
         const fmtK = n => n > 1e6 ? (n/1e6).toFixed(1)+'M' : n > 1000 ? Math.round(n/1000)+'K' : Math.round(n);
         const gdpLossL = Math.round((1 - this.hpL/this.maxHpL) * (this.data.left.gdp||0) * 0.1);
         const gdpLossR = Math.round((1 - this.hpR/this.maxHpR) * (this.data.right.gdp||0) * 0.1);
+        const troopLossL = Math.round(this.troopsLStart - this.troopsL);
+        const troopLossR = Math.round(this.troopsRStart - this.troopsR);
+        const troopSurvL = Math.round(this.troopsL);
+        const troopSurvR = Math.round(this.troopsR);
 
         // Victory banner
         let banner = document.getElementById('victoryBanner');
@@ -768,15 +895,17 @@ class MapBattle {
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
                     <div style="color:${MAP_BATTLE_CFG.COLORS.blue.main}">
                         <div style="font-weight:700">${this.nameL}</div>
-                        <div style="color:#64748b">${this.isZh?'伤亡':'Casualties'}: ${fmtK(this.popLossL)}</div>
+                        <div style="color:#64748b">${this.isZh?'军队损失':'Troops lost'}: ${fmtK(troopLossL)}</div>
+                        <div style="color:#64748b">${this.isZh?'存活':'Surviving'}: ${fmtK(troopSurvL)}</div>
+                        <div style="color:#64748b">${this.isZh?'平民伤亡':'Civilian'}: ${fmtK(this.popLossL)}</div>
                         <div style="color:#64748b">${this.isZh?'士气':'Morale'}: ${Math.round(this.stabilityL)}%</div>
-                        <div style="color:#64748b">GDP: -${fmtK(gdpLossL)}</div>
                     </div>
                     <div style="color:${MAP_BATTLE_CFG.COLORS.red.main};text-align:right">
                         <div style="font-weight:700">${this.nameR}</div>
-                        <div style="color:#64748b">${fmtK(this.popLossR)} :${this.isZh?'伤亡':'Casualties'}</div>
+                        <div style="color:#64748b">${fmtK(troopLossR)} :${this.isZh?'军队损失':'Troops lost'}</div>
+                        <div style="color:#64748b">${fmtK(troopSurvR)} :${this.isZh?'存活':'Surviving'}</div>
+                        <div style="color:#64748b">${fmtK(this.popLossR)} :${this.isZh?'平民伤亡':'Civilian'}</div>
                         <div style="color:#64748b">${Math.round(this.stabilityR)}% :${this.isZh?'士气':'Morale'}</div>
-                        <div style="color:#64748b">-${fmtK(gdpLossR)} :GDP</div>
                     </div>
                 </div>
             </div>
@@ -879,7 +1008,7 @@ class MapBattle {
         }
     }
 
-    // ===== RENDER (Canvas overlay for frontline + effects) =====
+    // ===== RENDER (Canvas overlay) =====
     _render() {
         if (!this.ctx) return;
         const ctx = this.ctx;
@@ -889,63 +1018,120 @@ class MapBattle {
 
         const pxL = this.centroidL ? map.latLngToContainerPoint(this.centroidL) : {x:100,y:300};
         const pxR = this.centroidR ? map.latLngToContainerPoint(this.centroidR) : {x:700,y:300};
+        const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
+        const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
+        const dt = 16; // approx frame time for particle updates
 
-        // ---- Warzone glow along the frontline ----
+        // ===== TROOP INFO ON TERRITORIES =====
+        if (this.phase !== 'outbreak') {
+            this._renderTroopInfo(ctx, pxL, 'left');
+            this._renderTroopInfo(ctx, pxR, 'right');
+        }
+
+        // ===== FRONTLINE EFFECTS =====
         if (this.phase === 'attrition' || this.phase === 'collapse') {
-            const midX = pxL.x + (pxR.x - pxL.x) * this.frontline;
-            const midY = pxL.y + (pxR.y - pxL.y) * this.frontline;
+            const isCollapse = this.phase === 'collapse';
 
-            // Frontline fire glow
-            const intensity = this.phase === 'collapse' ? 0.35 : 0.18;
+            // --- Smoke particles (behind fire) ---
+            for (let s of this.smokeParticles) {
+                s.x += s.vx; s.y += s.vy;
+                s.life += 0.016;
+                const t = s.life / s.maxLife;
+                const alpha = Math.max(0, 0.15 * (1 - t));
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.size * (1 + t*0.5), 0, Math.PI*2);
+                ctx.fillStyle = `rgba(50,50,50,${alpha})`;
+                ctx.fill();
+            }
+            this.smokeParticles = this.smokeParticles.filter(s => s.life < s.maxLife);
+
+            // --- Frontline fire zone ---
             const pulse = 0.6 + 0.4 * Math.sin(this.borderFlashPhase * 4);
-            const radius = this.phase === 'collapse' ? 80 : 50;
+            const fireRadius = isCollapse ? 100 : 60;
 
-            const grad = ctx.createRadialGradient(midX, midY, 0, midX, midY, radius * pulse);
-            grad.addColorStop(0, `rgba(245,158,11,${intensity * pulse})`);
-            grad.addColorStop(0.4, `rgba(239,68,68,${intensity * 0.5 * pulse})`);
-            grad.addColorStop(1, 'rgba(245,158,11,0)');
-            ctx.fillStyle = grad;
+            // Glow
+            const glowGrad = ctx.createRadialGradient(midX, midY, 0, midX, midY, fireRadius * pulse);
+            glowGrad.addColorStop(0, `rgba(245,158,11,${isCollapse ? 0.3 : 0.15})`);
+            glowGrad.addColorStop(0.5, `rgba(239,68,68,${isCollapse ? 0.15 : 0.06})`);
+            glowGrad.addColorStop(1, 'rgba(245,158,11,0)');
+            ctx.fillStyle = glowGrad;
             ctx.beginPath();
-            ctx.arc(midX, midY, radius * pulse, 0, Math.PI * 2);
+            ctx.arc(midX, midY, fireRadius * pulse, 0, Math.PI*2);
             ctx.fill();
 
-            // Connecting line (battle axis)
+            // --- Fire particles ---
+            for (let f of this.fireParticles) {
+                f.x += f.vx; f.y += f.vy;
+                f.life += 0.016;
+                const t = f.life / f.maxLife;
+                const alpha = Math.max(0, 1 - t*t);
+                const size = f.size * (1 - t*0.5);
+
+                // Fire: yellow center → orange → red outer
+                const r = 245, g = Math.round(158 - t*100), b = Math.round(11 + t*50);
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, size, 0, Math.PI*2);
+                ctx.fillStyle = `rgba(${r},${g},${b},${alpha * 0.8})`;
+                ctx.fill();
+
+                // Bright core
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, size*0.4, 0, Math.PI*2);
+                ctx.fillStyle = `rgba(255,255,200,${alpha * 0.6})`;
+                ctx.fill();
+            }
+            this.fireParticles = this.fireParticles.filter(f => f.life < f.maxLife);
+
+            // --- Battle axis (dashed) ---
             ctx.save();
             ctx.beginPath();
             ctx.moveTo(pxL.x, pxL.y);
             ctx.lineTo(pxR.x, pxR.y);
-            ctx.strokeStyle = `rgba(245,158,11,${0.06 + 0.04 * pulse})`;
+            ctx.strokeStyle = `rgba(245,158,11,${0.08 + 0.04 * pulse})`;
             ctx.lineWidth = 1;
-            ctx.setLineDash([8, 6]);
+            ctx.setLineDash([6, 8]);
             ctx.stroke();
             ctx.setLineDash([]);
             ctx.restore();
 
-            // Frontline marker
+            // --- Frontline marker ---
             ctx.beginPath();
-            ctx.arc(midX, midY, 4, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(245,158,11,${0.5 + 0.3 * pulse})`;
+            ctx.arc(midX, midY, 5, 0, Math.PI*2);
+            ctx.fillStyle = `rgba(245,158,11,${0.6 + 0.3 * pulse})`;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(midX, midY, 2, 0, Math.PI*2);
+            ctx.fillStyle = `rgba(255,255,200,0.8)`;
             ctx.fill();
 
-            // Small embers near frontline
-            if (this.phase === 'attrition' || this.phase === 'collapse') {
-                const emberCount = this.phase === 'collapse' ? 6 : 3;
-                for (let i = 0; i < emberCount; i++) {
-                    const angle = (this.borderFlashPhase * 2 + i * 1.2) % (Math.PI * 2);
-                    const dist = 15 + Math.sin(this.borderFlashPhase * 3 + i) * 20;
-                    const ex = midX + Math.cos(angle) * dist;
-                    const ey = midY + Math.sin(angle) * dist;
-                    const eSize = 1.5 + Math.random() * 2;
-                    const eAlpha = 0.3 + Math.random() * 0.4;
-                    ctx.beginPath();
-                    ctx.arc(ex, ey, eSize, 0, Math.PI * 2);
-                    ctx.fillStyle = `rgba(245,158,11,${eAlpha})`;
-                    ctx.fill();
-                }
-            }
+            // --- "FRONT LINE" label ---
+            ctx.save();
+            ctx.font = '9px Inter,system-ui,sans-serif';
+            ctx.fillStyle = `rgba(245,158,11,${0.4 + 0.2*pulse})`;
+            ctx.textAlign = 'center';
+            ctx.fillText(this.isZh ? '前线' : 'FRONT', midX, midY - 12);
+            ctx.restore();
         }
 
-        // ---- Collapse: screen edge vignette in red ----
+        // ===== FLOATING DAMAGE NUMBERS =====
+        for (let d of this.floatingNums) {
+            d.y -= 0.8;
+            d.life += 0.016;
+            d.alpha = Math.max(0, 1 - d.life / 1.5);
+            ctx.save();
+            ctx.globalAlpha = d.alpha;
+            ctx.font = 'bold 12px Inter,system-ui,sans-serif';
+            ctx.textAlign = 'center';
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.shadowBlur = 4;
+            ctx.fillStyle = d.color;
+            ctx.fillText(d.text, d.x, d.y);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+        this.floatingNums = this.floatingNums.filter(d => d.alpha > 0.01);
+
+        // ===== COLLAPSE VIGNETTE =====
         if (this.phase === 'collapse') {
             const collapseProgress = this.elapsed / MAP_BATTLE_CFG.PHASE_MS.collapse;
             const vignetteAlpha = collapseProgress * 0.12;
@@ -955,6 +1141,60 @@ class MapBattle {
             ctx.fillStyle = grad;
             ctx.fillRect(0, 0, this.cW, this.cH);
         }
+    }
+
+    // ===== TROOP INFO OVERLAY ON COUNTRY =====
+    _renderTroopInfo(ctx, px, side) {
+        const troops = side === 'left' ? this.troopsL : this.troopsR;
+        const troopsStart = side === 'left' ? this.troopsLStart : this.troopsRStart;
+        const types = side === 'left' ? this.troopTypesL : this.troopTypesR;
+        const color = side === 'left' ? MAP_BATTLE_CFG.COLORS.blue : MAP_BATTLE_CFG.COLORS.red;
+        const hp = side === 'left' ? this.hpL / this.maxHpL : this.hpR / this.maxHpR;
+        const stability = side === 'left' ? this.stabilityL : this.stabilityR;
+
+        ctx.save();
+
+        // Background card on territory
+        const cardW = 110, cardH = 56 + types.length * 13;
+        const cx = px.x - cardW/2, cy = px.y - cardH/2;
+        ctx.fillStyle = 'rgba(8,12,20,0.75)';
+        ctx.strokeStyle = `rgba(${side==='left'?'79,143,247':'240,96,96'},0.3)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(cx, cy, cardW, cardH, 6);
+        ctx.fill();
+        ctx.stroke();
+
+        // Total troops
+        ctx.font = 'bold 14px Inter,system-ui,sans-serif';
+        ctx.fillStyle = color.main;
+        ctx.textAlign = 'center';
+        ctx.fillText(this._fmtTroops(troops), px.x, cy + 16);
+
+        // Troop breakdown
+        ctx.font = '10px Inter,system-ui,sans-serif';
+        types.forEach((t, i) => {
+            const count = Math.round(troops * t.ratio);
+            const label = this.isZh ? t.zh : t.name;
+            const y = cy + 30 + i * 13;
+            ctx.fillStyle = '#64748b';
+            ctx.textAlign = 'left';
+            ctx.fillText(`${t.icon} ${label}`, cx + 6, y);
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#94a3b8';
+            ctx.fillText(this._fmtTroops(count), cx + cardW - 6, y);
+        });
+
+        // Mini HP bar at bottom of card
+        const barY = cy + cardH - 8;
+        const barW = cardW - 12;
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(cx + 6, barY, barW, 4);
+        const hpColor = hp > 0.6 ? color.main : (hp > 0.3 ? '#f59e0b' : '#ef4444');
+        ctx.fillStyle = hpColor;
+        ctx.fillRect(cx + 6, barY, barW * hp, 4);
+
+        ctx.restore();
     }
 
     // ===== CLEANUP =====
