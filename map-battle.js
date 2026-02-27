@@ -970,100 +970,135 @@ class MapBattle {
     }
 }
 
-// ===== VS MODAL (preserved from v140) =====
+// ===== DIRECT MAP-CLICK BATTLE SELECTION =====
+// No modal. Click VS button → click country 1 → click country 2 → battle starts.
+// A small hint bar appears at top of map. That's it.
+
 let activeMapBattle = null;
-let vsModalCountries = [null, null];
-let vsModalSlot = 0;
-let vsModalSelecting = false;
+let vsSelecting = false;
+let vsCountryA = null; // first selected ISO
+let vsHighlightLayer = null; // highlighted first country layer
 
 function showVsModal() {
-    let modal = document.getElementById('vsModal');
-    const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'vsModal';
-        modal.style.cssText = `position:fixed;top:16px;right:16px;z-index:1500;background:rgba(10,14,23,0.92);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px 20px;width:300px;font-family:Inter,system-ui,sans-serif;color:#e2e8f0;box-shadow:0 8px 32px rgba(0,0,0,0.5);`;
-        modal.innerHTML = `
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-                <div><span style="font-size:16px;font-weight:800;color:#f59e0b">VS</span> <span class="vs-modal-year" id="vsModalYear" style="font-size:11px;color:#64748b;margin-left:4px">${typeof yearLabel !== 'undefined' ? yearLabel(TIME_PERIODS[currentIndex]) : ''}</span></div>
-                <button id="vsModalClose" style="font-size:10px;color:#64748b;background:none;border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:2px 10px;cursor:pointer">${isZh?'取消':'Cancel'}</button>
-            </div>
-            <div style="font-size:10px;color:#475569;margin-bottom:8px">${isZh ? '点击地图或搜索选国家' : 'Click map or search to pick'}</div>
-            <!-- Left -->
-            <div style="margin-bottom:8px">
-                <div style="font-size:9px;color:${MAP_BATTLE_CFG.COLORS.blue.main};margin-bottom:3px;text-transform:uppercase;letter-spacing:1px">${isZh?'左方':'LEFT'}</div>
-                <div class="vs-modal-search-wrap" style="position:relative">
-                    <input id="vsSearchL" type="text" placeholder="${isZh?'搜索国家...':'Search...'}" style="width:100%;padding:5px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(79,143,247,0.3);border-radius:6px;color:#e2e8f0;font-size:12px;outline:none;box-sizing:border-box;">
-                    <div id="vsDropL" style="display:none;position:absolute;top:100%;left:0;right:0;background:rgba(10,14,23,0.95);border:1px solid rgba(255,255,255,0.08);border-radius:8px;max-height:140px;overflow-y:auto;z-index:10;margin-top:2px;"></div>
-                </div>
-                <div id="vsSelectedL" style="display:none;font-size:13px;font-weight:700;cursor:pointer;padding:4px 0;"></div>
-            </div>
-            <!-- Right -->
-            <div style="margin-bottom:8px">
-                <div style="font-size:9px;color:${MAP_BATTLE_CFG.COLORS.red.main};margin-bottom:3px;text-transform:uppercase;letter-spacing:1px">${isZh?'右方':'RIGHT'}</div>
-                <div class="vs-modal-search-wrap" style="position:relative">
-                    <input id="vsSearchR" type="text" placeholder="${isZh?'搜索国家...':'Search...'}" style="width:100%;padding:5px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(240,96,96,0.3);border-radius:6px;color:#e2e8f0;font-size:12px;outline:none;box-sizing:border-box;">
-                    <div id="vsDropR" style="display:none;position:absolute;top:100%;left:0;right:0;background:rgba(10,14,23,0.95);border:1px solid rgba(255,255,255,0.08);border-radius:8px;max-height:140px;overflow-y:auto;z-index:10;margin-top:2px;"></div>
-                </div>
-                <div id="vsSelectedR" style="display:none;font-size:13px;font-weight:700;cursor:pointer;padding:4px 0;"></div>
-            </div>
-            <div id="vsModalPreview" style="font-size:10px;color:#64748b;margin:6px 0;min-height:16px;text-align:center;"></div>
-            <div style="display:flex;gap:8px">
-                <button class="vs-modal-go" id="vsModalGo" disabled style="flex:1;padding:7px 0;background:linear-gradient(135deg,#f59e0b,#d97706);color:#0a0e17;font-weight:700;border:none;border-radius:8px;cursor:pointer;font-size:12px;opacity:0.4;transition:opacity 0.3s">${isZh?'开战':'START BATTLE'}</button>
-            </div>
-        `;
-        document.body.appendChild(modal);
-        document.getElementById('vsModalGo').addEventListener('click', () => {
-            if (vsModalCountries[0] && vsModalCountries[1]) { closeVsModal(); launchMapBattle(vsModalCountries[0], vsModalCountries[1]); }
-        });
-        document.getElementById('vsModalClose').addEventListener('click', closeVsModal);
-        setupVsSearch('vsSearchL', 'vsDropL', 'vsSelectedL', 0);
-        setupVsSearch('vsSearchR', 'vsDropR', 'vsSelectedR', 1);
-    }
-    modal.style.display = 'block';
-    vsModalCountries = [null, null]; vsModalSlot = 0; vsModalSelecting = true;
-    ['vsSearchL','vsSearchR'].forEach(id => { const el=document.getElementById(id); if(el){el.style.display='';el.value='';} });
-    ['vsSelectedL','vsSelectedR'].forEach(id => { const el=document.getElementById(id); if(el) el.style.display='none'; });
-    ['vsDropL','vsDropR'].forEach(id => { const el=document.getElementById(id); if(el) el.style.display='none'; });
-    const yearEl = document.getElementById('vsModalYear');
-    if (yearEl && typeof yearLabel !== 'undefined') yearEl.textContent = yearLabel(TIME_PERIODS[currentIndex]);
-    updateVsModal();
+    // Enter selection mode — no modal, just a hint bar
+    if (activeMapBattle) return; // battle in progress
+    vsSelecting = true;
+    vsCountryA = null;
+    _clearVsHighlight();
+    _showVsHint(1);
 }
 
+// Called from app.js click handler
 function vsModalPickCountry(iso) {
-    if (!vsModalSelecting) return;
-    vsModalCountries[vsModalSlot] = iso;
-    const side = vsModalSlot === 0 ? 'L' : 'R';
-    const input = document.getElementById('vsSearch'+side);
-    const sel = document.getElementById('vsSelected'+side);
-    if (input) input.style.display = 'none';
-    if (sel) {
-        sel.textContent = typeof getLocalName !== 'undefined' ? getLocalName(iso) : iso;
-        sel.style.display = 'block';
-        sel.style.color = vsModalSlot === 0 ? MAP_BATTLE_CFG.COLORS.blue.main : MAP_BATTLE_CFG.COLORS.red.main;
-        sel.onclick = () => { vsModalCountries[vsModalSlot===0?0:1]=null; sel.style.display='none'; if(input){input.style.display='';input.value='';} updateVsModal(); };
+    if (!vsSelecting) return;
+
+    if (!vsCountryA) {
+        // First pick
+        vsCountryA = iso;
+        _highlightCountry(iso, MAP_BATTLE_CFG.COLORS.blue.main);
+        _showVsHint(2, iso);
+    } else if (iso === vsCountryA) {
+        // Clicked same country — deselect
+        vsCountryA = null;
+        _clearVsHighlight();
+        _showVsHint(1);
+    } else {
+        // Second pick — start battle!
+        const isoL = vsCountryA;
+        const isoR = iso;
+        _clearVsHighlight();
+        _removeVsHint();
+        vsSelecting = false;
+        vsCountryA = null;
+        launchMapBattle(isoL, isoR);
     }
-    vsModalSlot = vsModalSlot === 0 ? 1 : 0;
-    updateVsModal();
 }
+
+// Keep old name for compatibility with app.js
+let vsModalSelecting = false;
+Object.defineProperty(window, 'vsModalSelecting', {
+    get() { return vsSelecting; },
+    set(v) { vsSelecting = v; }
+});
 
 function closeVsModal() {
-    const modal = document.getElementById('vsModal');
-    if (modal) modal.style.display = 'none';
-    vsModalSelecting = false;
+    vsSelecting = false;
+    vsCountryA = null;
+    _clearVsHighlight();
+    _removeVsHint();
 }
 
-function updateVsModal() {
-    const goBtn = document.getElementById('vsModalGo');
-    const ready = vsModalCountries[0] && vsModalCountries[1];
-    if (goBtn) { goBtn.disabled = !ready; goBtn.style.opacity = ready ? '1' : '0.4'; }
-    const preview = document.getElementById('vsModalPreview');
-    if (preview && vsModalCountries[0] && vsModalCountries[1]) {
-        const fmtPop = typeof formatPopShort !== 'undefined' ? formatPopShort : n => n.toLocaleString();
-        const pL = currentPopData[vsModalCountries[0]]||0, pR = currentPopData[vsModalCountries[1]]||0;
-        const nL = currentNpiData[vsModalCountries[0]]||0, nR = currentNpiData[vsModalCountries[1]]||0;
-        preview.innerHTML = `<span style="color:${MAP_BATTLE_CFG.COLORS.blue.main}">${fmtPop(pL)}</span> vs <span style="color:${MAP_BATTLE_CFG.COLORS.red.main}">${fmtPop(pR)}</span> · <span style="color:${MAP_BATTLE_CFG.COLORS.blue.main}">${nL.toFixed(1)}%</span> str vs <span style="color:${MAP_BATTLE_CFG.COLORS.red.main}">${nR.toFixed(1)}%</span>`;
-    } else if (preview) preview.innerHTML = '';
+function _showVsHint(step, iso) {
+    let hint = document.getElementById('vsHintBar');
+    const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
+    if (!hint) {
+        hint = document.createElement('div');
+        hint.id = 'vsHintBar';
+        hint.style.cssText = `
+            position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:700;
+            background:rgba(8,12,20,0.88);backdrop-filter:blur(16px);
+            border:1px solid rgba(245,158,11,0.2);border-radius:10px;
+            padding:8px 20px;pointer-events:auto;
+            font-family:Inter,system-ui,sans-serif;color:#e2e8f0;font-size:13px;
+            box-shadow:0 4px 20px rgba(0,0,0,0.4);
+            display:flex;align-items:center;gap:12px;
+            transition:opacity 0.3s ease;
+        `;
+        map.getContainer().appendChild(hint);
+    }
+
+    if (step === 1) {
+        hint.innerHTML = `
+            <span style="color:#f59e0b;font-weight:800;font-size:15px">VS</span>
+            <span>${isZh ? '点击第一个国家' : 'Click the first country'}</span>
+            <button id="vsCancelBtn" style="font-size:10px;color:#64748b;background:none;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:2px 10px;cursor:pointer;margin-left:4px">${isZh?'取消':'Cancel'}</button>
+        `;
+    } else if (step === 2 && iso) {
+        const name = typeof getLocalName !== 'undefined' ? getLocalName(iso) : iso;
+        hint.innerHTML = `
+            <span style="color:#f59e0b;font-weight:800;font-size:15px">VS</span>
+            <span style="color:${MAP_BATTLE_CFG.COLORS.blue.main};font-weight:700">${name}</span>
+            <span style="color:#64748b">vs</span>
+            <span>${isZh ? '点击对手国家' : 'Click the opponent'}</span>
+            <button id="vsCancelBtn" style="font-size:10px;color:#64748b;background:none;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:2px 10px;cursor:pointer;margin-left:4px">${isZh?'取消':'Cancel'}</button>
+        `;
+    }
+    hint.style.display = 'flex';
+    const cancelBtn = document.getElementById('vsCancelBtn');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeVsModal);
+}
+
+function _removeVsHint() {
+    const hint = document.getElementById('vsHintBar');
+    if (hint) hint.style.display = 'none';
+}
+
+function _highlightCountry(iso, color) {
+    _clearVsHighlight();
+    if (typeof geoLayer === 'undefined' || !geoLayer) return;
+    geoLayer.eachLayer(layer => {
+        const props = layer.feature.properties;
+        let layerIso = props.ISO_A3;
+        if (layerIso === '-99' && typeof ISO_FIXES !== 'undefined')
+            layerIso = ISO_FIXES[props.NAME] || layerIso;
+        if (layerIso === iso) {
+            vsHighlightLayer = { layer, origStyle: {
+                fillColor: layer.options.fillColor,
+                fillOpacity: layer.options.fillOpacity,
+                color: layer.options.color,
+                weight: layer.options.weight,
+            }};
+            layer.setStyle({ fillColor: color, fillOpacity: 0.5, color: '#93bbff', weight: 2.5 });
+            layer.bringToFront();
+        }
+    });
+}
+
+function _clearVsHighlight() {
+    if (vsHighlightLayer) {
+        try { vsHighlightLayer.layer.setStyle(vsHighlightLayer.origStyle); } catch(e) {}
+        vsHighlightLayer = null;
+    }
 }
 
 function launchMapBattle(isoL, isoR) {
@@ -1078,52 +1113,4 @@ function launchMapBattle(isoL, isoR) {
     if (activeMapBattle) activeMapBattle.stop();
     activeMapBattle = new MapBattle(isoL, isoR, year, data);
     activeMapBattle.start((winner, stats) => { activeMapBattle = null; });
-}
-
-function setupVsSearch(inputId, dropId, selectedId, slotIdx) {
-    const input = document.getElementById(inputId);
-    const drop = document.getElementById(dropId);
-    function getCountryList() {
-        const list = [];
-        if (typeof COUNTRY_NAMES !== 'undefined') {
-            Object.keys(COUNTRY_NAMES).forEach(iso => {
-                const pop = currentPopData[iso]||0;
-                if (pop > 0) {
-                    const en = COUNTRY_NAMES[iso]||iso;
-                    const cn = (typeof CN_NAMES !== 'undefined' && CN_NAMES[iso])||en;
-                    list.push({iso,en,cn,pop});
-                }
-            });
-        }
-        return list.sort((a,b) => b.pop-a.pop);
-    }
-    input.addEventListener('input', () => {
-        const q = input.value.toLowerCase().trim();
-        if (!q) { drop.style.display='none'; return; }
-        const matches = getCountryList().filter(c => c.en.toLowerCase().includes(q)||c.cn.includes(q)||c.iso.toLowerCase().includes(q)).slice(0,8);
-        if (!matches.length) { drop.style.display='none'; return; }
-        drop.innerHTML = matches.map(c => {
-            const name = typeof currentLang !== 'undefined' && currentLang === 'zh' ? c.cn : c.en;
-            const popStr = typeof formatPopShort !== 'undefined' ? formatPopShort(c.pop) : c.pop;
-            return `<div class="vs-drop-item" data-iso="${c.iso}" style="padding:6px 10px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.04)"><span style="color:#e2e8f0;font-size:12px">${name}</span><span style="color:#475569;font-size:10px">${popStr}</span></div>`;
-        }).join('');
-        drop.style.display = 'block';
-        drop.querySelectorAll('.vs-drop-item').forEach(item => {
-            item.addEventListener('mouseenter', () => item.style.background='rgba(255,255,255,0.05)');
-            item.addEventListener('mouseleave', () => item.style.background='none');
-            item.addEventListener('click', () => {
-                vsModalCountries[slotIdx] = item.dataset.iso;
-                input.style.display = 'none';
-                const sel = document.getElementById(selectedId);
-                sel.textContent = typeof getLocalName !== 'undefined' ? getLocalName(item.dataset.iso) : item.dataset.iso;
-                sel.style.display = 'block';
-                sel.style.color = slotIdx === 0 ? MAP_BATTLE_CFG.COLORS.blue.main : MAP_BATTLE_CFG.COLORS.red.main;
-                sel.onclick = () => { vsModalCountries[slotIdx]=null; sel.style.display='none'; input.style.display=''; input.value=''; updateVsModal(); };
-                drop.style.display = 'none';
-                updateVsModal();
-            });
-        });
-    });
-    input.addEventListener('focus', () => { if(input.value) input.dispatchEvent(new Event('input')); });
-    document.addEventListener('click', e => { if(!e.target.closest('.vs-modal-search-wrap')) drop.style.display='none'; });
 }
