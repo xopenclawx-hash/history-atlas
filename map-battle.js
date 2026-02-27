@@ -295,12 +295,14 @@ class MapBattle {
                 collisionsThisFrame++;
                 this._createSpark(p.x, p.y, p.side);
                 const strength = p.side === 'left' ? this.ratioL : this.ratioR;
-                const dmg = (0.25 + Math.random()*0.4) * (strength / 0.5);
+                // Slower HP drain: loser reaches ~10-15% at end, winner ~35-50%
+                const baseDmg = 0.06 + Math.random()*0.08;
+                const dmg = baseDmg * (strength / 0.5);
                 if (p.side === 'left') {
-                    this.hpR = Math.max(0, this.hpR - dmg);
+                    this.hpR = Math.max(5, this.hpR - dmg);
                     this.cumulativeDmgR += dmg;
                 } else {
-                    this.hpL = Math.max(0, this.hpL - dmg);
+                    this.hpL = Math.max(5, this.hpL - dmg);
                     this.cumulativeDmgL += dmg;
                 }
                 if (Math.random() < 0.08) this._addDamageNum(p.x, p.y, dmg, p.side);
