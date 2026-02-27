@@ -1047,16 +1047,24 @@ function vsModalPickCountry(iso) {
 }
 
 function launchMapBattle(isoL, isoR) {
-    const yearIdx = typeof currentPeriodIndex !== 'undefined' ? currentPeriodIndex : 0;
-    const tp = typeof TIME_PERIODS !== 'undefined' ? TIME_PERIODS[yearIdx] : null;
-    if (!tp) return;
+    // currentIndex is the global timeline index; TIME_PERIODS[i] = year number
+    const idx = typeof currentIndex !== 'undefined' ? currentIndex : 0;
+    const year = typeof TIME_PERIODS !== 'undefined' && TIME_PERIODS[idx] ? TIME_PERIODS[idx] : 2000;
+
+    // interpData(SOURCE_OBJECT, year) returns {ISO: value, ...}
+    const popData = typeof OWID_POP !== 'undefined' ? interpData(OWID_POP, year) : {};
+    const gdpData = typeof OWID_GDP !== 'undefined' ? interpData(OWID_GDP, year) : {};
+    const npiData = typeof OWID_NPI !== 'undefined' ? interpData(OWID_NPI, year) : {};
+
     function getData(iso) {
-        const pop = typeof interpData !== 'undefined' ? interpData(iso, 'pop', yearIdx) : 0;
-        const gdp = typeof interpData !== 'undefined' ? interpData(iso, 'gdp', yearIdx) : 0;
-        const npi = typeof interpData !== 'undefined' ? interpData(iso, 'npi', yearIdx) : 0;
-        return { pop, gdp, npi };
+        return {
+            pop: Number(popData[iso]) || 0,
+            gdp: Number(gdpData[iso]) || 0,
+            npi: Number(npiData[iso]) || 0,
+        };
     }
-    const battle = new MapBattle(isoL, isoR, tp.year, { left: getData(isoL), right: getData(isoR) });
+
+    const battle = new MapBattle(isoL, isoR, year, { left: getData(isoL), right: getData(isoR) });
     window._currentBattle = battle;
     battle.start((winner, stats) => { window._currentBattle = null; });
 }
