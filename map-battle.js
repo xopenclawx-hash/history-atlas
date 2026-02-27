@@ -1047,22 +1047,25 @@ function vsModalPickCountry(iso) {
 }
 
 function launchMapBattle(isoL, isoR) {
-    // currentIndex is the global timeline index; TIME_PERIODS[i] = year number
-    const idx = typeof currentIndex !== 'undefined' ? currentIndex : 0;
-    const year = typeof TIME_PERIODS !== 'undefined' && TIME_PERIODS[idx] ? TIME_PERIODS[idx] : 2000;
+    // Use the already-computed global data from app.js
+    const year = (typeof TIME_PERIODS !== 'undefined' && typeof currentIndex !== 'undefined')
+        ? TIME_PERIODS[currentIndex] : 2000;
 
-    // interpData(SOURCE_OBJECT, year) returns {ISO: value, ...}
-    const popData = typeof OWID_POP !== 'undefined' ? interpData(OWID_POP, year) : {};
-    const gdpData = typeof OWID_GDP !== 'undefined' ? interpData(OWID_GDP, year) : {};
-    const npiData = typeof OWID_NPI !== 'undefined' ? interpData(OWID_NPI, year) : {};
+    // currentPopData/currentGdpData/currentNpiData are global maps {ISO: number}
+    // set by app.js updateMap() on every timeline change
+    const popMap = typeof currentPopData !== 'undefined' ? currentPopData : {};
+    const gdpMap = typeof currentGdpData !== 'undefined' ? currentGdpData : {};
+    const npiMap = typeof currentNpiData !== 'undefined' ? currentNpiData : {};
 
     function getData(iso) {
         return {
-            pop: Number(popData[iso]) || 0,
-            gdp: Number(gdpData[iso]) || 0,
-            npi: Number(npiData[iso]) || 0,
+            pop: Number(popMap[iso]) || 0,
+            gdp: Number(gdpMap[iso]) || 0,
+            npi: Number(npiMap[iso]) || 0,
         };
     }
+
+    console.log('[MapBattle] year:', year, 'L:', isoL, getData(isoL), 'R:', isoR, getData(isoR));
 
     const battle = new MapBattle(isoL, isoR, year, { left: getData(isoL), right: getData(isoR) });
     window._currentBattle = battle;
