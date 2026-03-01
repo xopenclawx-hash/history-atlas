@@ -131,58 +131,122 @@ function _showBorderLoading(show) {
     }
 }
 
+// ===== NAME FILTERING =====
+// Filter out academic/tribal names that confuse users
+const _FILTER_KEYWORDS = [
+    'hunter', 'gather', 'pastoral', 'foraging', 'fisher', 'farmer',
+    'shellfish', 'bison', 'marine mammal', 'culture', 'peoples',
+    'aboriginal', 'subarctic', 'desert hunter', 'savanna hunter',
+    'plateau fich', 'plain bison', 'pampas', 'patagonian',
+    'siberians', 'guanches', 'prot-', 'proto-',
+    'cereal farmer', 'rice farmer', 'maize farmer', 'manioc farmer',
+    'neolithic farmer', 'megalith', 'bronze age',
+];
+
+function _shouldFilter(name) {
+    if (!name || name === '?') return true;
+    const lower = name.toLowerCase();
+    return _FILTER_KEYWORDS.some(k => lower.includes(k));
+}
+
+// Shorten overly long names
+function _shortenName(name) {
+    if (!name) return '';
+    // Remove parenthetical indigenous names: "Foo (Bar)" -> "Foo"
+    if (name.length > 25) {
+        const paren = name.indexOf(' (');
+        if (paren > 5) name = name.substring(0, paren);
+    }
+    // Remove unicode indigenous scripts
+    if (/[\u1400-\u167F\u10280-\u1029F\uAB70-\uABBF\u13A0-\u13FF]/.test(name)) {
+        // Extract the ASCII part
+        const ascii = name.replace(/[^\x20-\x7E]/g, '').trim();
+        if (ascii.length > 3) name = ascii;
+    }
+    // Truncate if still too long
+    if (name.length > 30) name = name.substring(0, 28) + '…';
+    return name;
+}
+
 // ===== STYLING =====
 function _styleHistorical(feature, year) {
     const name = feature.properties.NAME || feature.properties.name || '';
-    const iso = entityToISO(name, year);
 
-    // Get data for coloring if available
-    let fillColor = '#1a1f2e';
-    let fillOpacity = 0.5;
-
-    if (iso && typeof currentPopData !== 'undefined' && currentPopData[iso]) {
-        // Use same color scale as current app
-        const pop = currentPopData[iso];
-        fillColor = _popColor(pop);
-        fillOpacity = 0.65;
-    } else if (name && name !== '?') {
-        // Has a name but no data — show as neutral
-        fillColor = '#1e293b';
-        fillOpacity = 0.4;
-    } else {
-        fillColor = '#0f172a';
-        fillOpacity = 0.15;
+    // Filter out academic/tribal entries — make them nearly invisible
+    if (_shouldFilter(name)) {
+        return {
+            fillColor: '#0d1117', fillOpacity: 0.08,
+            color: 'rgba(255,255,255,0.02)', weight: 0.2,
+        };
     }
 
-    return {
-        fillColor,
-        fillOpacity,
-        color: 'rgba(255,255,255,0.08)',
-        weight: 0.8,
-    };
+    const iso = entityToISO(name, year);
+
+    // Use app.js color functions if available (respects activeLayer)
+    if (iso && typeof applyPopStyle !== 'undefined' && typeof activeLayer !== 'undefined') {
+        // Let applyPopStyle handle it after layer creation
+        // Return a default that will be overridden
+        const pop = (typeof currentPopData !== 'undefined' && currentPopData[iso]) || 0;
+        if (pop > 0) {
+            return {
+                fillColor: _popColorEnhanced(pop), fillOpacity: _popOpacity(pop),
+                color: 'rgba(56,189,248,0.12)', weight: 0.7,
+            };
+        }
+    }
+
+    // Named entity but no data
+    if (name && name !== '?') {
+        return {
+            fillColor: '#1a2332', fillOpacity: 0.3,
+            color: 'rgba(255,255,255,0.06)', weight: 0.5,
+        };
+    }
+
+    return { fillColor: '#0d1117', fillOpacity: 0.05, color: 'rgba(255,255,255,0.02)', weight: 0.2, };
 }
 
-function _popColor(pop) {
-    // Discrete bins matching current OWID style
-    if (pop >= 1e9)  return '#166534'; // 1B+
-    if (pop >= 100e6) return '#15803d'; // 100M+
-    if (pop >= 30e6)  return '#16a34a'; // 30M+
-    if (pop >= 10e6)  return '#22c55e'; // 10M+
-    if (pop >= 1e6)   return '#4ade80'; // 1M+
-    if (pop >= 100000)return '#86efac'; // 100K+
-    return '#bbf7d0';
+function _popColorEnhanced(pop) {
+    // Richer cyan-blue gradient for dark theme
+    if (pop >= 1e9)   return '#0d9488'; // teal-600
+    if (pop >= 300e6)  return '#14b8a6'; // teal-500
+    if (pop >= 100e6)  return '#2dd4bf'; // teal-400
+    if (pop >= 30e6)   return '#5eead4'; // teal-300
+    if (pop >= 10e6)   return '#0ea5e9'; // sky-500
+    if (pop >= 1e6)    return '#38bdf8'; // sky-400
+    if (pop >= 100000) return '#7dd3fc'; // sky-300
+    return '#bae6fd'; // sky-200
+}
+
+function _popOpacity(pop) {
+    if (pop >= 100e6) return 0.75;
+    if (pop >= 10e6)  return 0.60;
+    if (pop >= 1e6)   return 0.45;
+    return 0.30;
 }
 
 // ===== EVENT BINDING =====
 function _bindHistorical(feature, layer, year) {
     const rawName = feature.properties.NAME || feature.properties.name || '?';
+
+    // Skip binding events for filtered entities
+    if (_shouldFilter(rawName)) {
+        layer._histISO = null;
+        layer._histName = rawName;
+        return;
+    }
+
     const iso = entityToISO(rawName, year);
     const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
 
-    // Get display name
-    let displayName = rawName;
+    // Get display name: Chinese translation > shortened original
+    let displayName;
     if (typeof getHistoricalDisplayName !== 'undefined') {
         displayName = getHistoricalDisplayName(rawName, year, isZh ? 'zh' : 'en');
+    }
+    // If no Chinese name found or still same as raw, shorten
+    if (!displayName || displayName === rawName) {
+        displayName = _shortenName(rawName);
     }
 
     // Tooltip — same class as main app
