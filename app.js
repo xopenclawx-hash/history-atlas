@@ -259,6 +259,13 @@ let geoLayer = null;
 let currentPopData = {};  // ISO3 -> pop for current year
 
 function getISO(feature) {
+    // Historical GeoJSON: use entity-to-ISO mapping
+    if (!feature.properties.ISO_A3 && feature.properties.NAME) {
+        if (typeof entityToISO !== 'undefined') {
+            return entityToISO(feature.properties.NAME, TIME_PERIODS[currentIndex] || 2000);
+        }
+        return null;
+    }
     const raw = feature.properties.ISO_A3;
     if (raw && raw !== '-99') return raw;
     return ISO_FIXES[feature.properties.ADMIN] || ISO_FIXES[feature.properties.NAME] || raw;
@@ -423,7 +430,15 @@ function drawSparkline(iso, currentYear, layer) {
 
 function showTooltip(e, layer) {
     const iso = getISO(layer.feature);
-    const name = getLocalName(iso);
+    const rawName = layer.feature.properties.NAME || layer.feature.properties.name || '';
+    const isZh = typeof currentLang !== 'undefined' && currentLang === 'zh';
+    // Prefer historical display name, fallback to ISO-based name
+    let name = getLocalName(iso);
+    if ((!name || name === iso || name === 'null') && rawName) {
+        name = (typeof getHistoricalDisplayName !== 'undefined')
+            ? getHistoricalDisplayName(rawName, TIME_PERIODS[currentIndex], isZh ? 'zh' : 'en')
+            : rawName;
+    }
     const year = TIME_PERIODS[currentIndex];
     const pop = currentPopData[iso] || 0;
     
@@ -470,60 +485,75 @@ function hideTooltip() {
 }
 
 // Load GeoJSON
-fetch('countries.geojson?v=13')
-    .then(r => r.json())
-    .then(data => {
-        geoLayer = L.geoJSON(data, {
-            style: getDefaultStyle,
-            onEachFeature: function(feature, layer) {
-                layer.bindTooltip(getLocalName(getISO(feature)) || feature.properties.NAME || '', {
-                    className: 'country-tooltip', sticky: true, direction: 'top', offset: [0, -10],
-                });
-                layer.on({
-                    mouseover: function(e) {
-                        const iso = getISO(feature);
-                        const pop = currentPopData[iso] || 0;
-                        layer.setStyle({
-                            fillOpacity: Math.min(0.9, (layer.options.fillOpacity || 0.2) + 0.2),
-                            weight: 2, color: '#38bdf8', opacity: 0.7
-                        });
-                        layer.bringToFront();
-                        showTooltip(e, layer);
-                        if (activeLayer === 'gdppc') {
-                            highlightLegendBin(getGdppcBinIndex(currentGdppcData[getISO(feature)] || 0));
-                        } else if (activeLayer === 'npi') {
-                            highlightLegendBin(getNpiBinIndex(currentNpiData[getISO(feature)] || 0));
-                        } else if (activeLayer === 'gdp') {
-                            highlightLegendBin(getGdpBinIndex(currentGdpData[getISO(feature)] || 0));
-                        } else {
-                            highlightLegendBin(getPopBinIndex(pop));
-                        }
-                    },
-                    mouseout: function(e) {
-                        applyPopStyle(layer);
-                        hideTooltip();
-                        clearLegendHighlight();
-                    },
-                    mousemove: function(e) {
-                        showTooltip(e, layer);
-                    },
-                    click: function(e) {
-                        // VS modal country selection
-                        if (typeof vsModalSelecting !== 'undefined' && vsModalSelecting) {
-                            vsModalPickCountry(getISO(feature));
-                            return;
-                        }
-                        if (compareMode) {
-                            addCompareCountry(getISO(feature));
-                        } else {
-                            showCountryCard(getISO(feature), e.originalEvent.clientX, e.originalEvent.clientY);
-                        }
-                    },
-                });
-            }
-        }).addTo(map);
+// ===== HISTORICAL BORDERS INIT =====
+// Load initial historical snapshot, then update map
+(async function initHistoricalBorders() {
+    try {
+        const year = TIME_PERIODS[0] || -3000;
+        await loadHistoricalSnapshot(year);
         updateMap(0);
+    } catch (err) {
+        console.error('[Init] Historical borders failed, falling back to modern:', err);
+        // Fallback to modern GeoJSON
+        fetch('countries.geojson?v=13')
+            .then(r => r.json())
+            .then(data => {
+                geoLayer = L.geoJSON(data, {
+                    style: getDefaultStyle,
+                    onEachFeature: function(feature, layer) {
+                        _bindModernLayer(feature, layer);
+                    }
+                }).addTo(map);
+                updateMap(0);
+            });
+    }
+})();
+
+function _bindModernLayer(feature, layer) {
+    layer.bindTooltip(getLocalName(getISO(feature)) || feature.properties.NAME || '', {
+        className: 'country-tooltip', sticky: true, direction: 'top', offset: [0, -10],
     });
+    layer.on({
+        mouseover: function(e) {
+            const iso = getISO(feature);
+            const pop = currentPopData[iso] || 0;
+            layer.setStyle({
+                fillOpacity: Math.min(0.9, (layer.options.fillOpacity || 0.2) + 0.2),
+                weight: 2, color: '#38bdf8', opacity: 0.7
+            });
+            layer.bringToFront();
+            showTooltip(e, layer);
+            if (activeLayer === 'gdppc') {
+                highlightLegendBin(getGdppcBinIndex(currentGdppcData[getISO(feature)] || 0));
+            } else if (activeLayer === 'npi') {
+                highlightLegendBin(getNpiBinIndex(currentNpiData[getISO(feature)] || 0));
+            } else if (activeLayer === 'gdp') {
+                highlightLegendBin(getGdpBinIndex(currentGdpData[getISO(feature)] || 0));
+            } else {
+                highlightLegendBin(getPopBinIndex(pop));
+            }
+        },
+        mouseout: function(e) {
+            applyPopStyle(layer);
+            hideTooltip();
+            clearLegendHighlight();
+        },
+        mousemove: function(e) {
+            showTooltip(e, layer);
+        },
+        click: function(e) {
+            if (typeof vsModalSelecting !== 'undefined' && vsModalSelecting) {
+                vsModalPickCountry(getISO(feature));
+                return;
+            }
+            if (compareMode) {
+                addCompareCountry(getISO(feature));
+            } else {
+                showCountryCard(getISO(feature), e.originalEvent.clientX, e.originalEvent.clientY);
+            }
+        },
+    });
+}
 
 // ===== SEARCH =====
 const searchInput = document.getElementById('searchInput');
@@ -566,10 +596,15 @@ searchInput.addEventListener('blur', () => setTimeout(() => searchResults.classL
 // ===== UPDATE MAP =====
 let prevRankings = {};
 
-function updateMap(index) {
+async function updateMap(index) {
     currentIndex = index;
     const year = TIME_PERIODS[index];
     const yearStr = String(year);
+    
+    // Switch historical border snapshot if needed
+    if (typeof loadHistoricalSnapshot !== 'undefined') {
+        await loadHistoricalSnapshot(year);
+    }
     
     currentPopData = interpData(OWID_POP, year);
     currentGdpData = typeof OWID_GDP !== 'undefined' ? interpData(OWID_GDP, year) : {};
